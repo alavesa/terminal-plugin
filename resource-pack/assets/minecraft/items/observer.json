@@ -1,0 +1,19 @@
+{
+  "model": {
+    "type": "minecraft:select",
+    "property": "minecraft:custom_model_data",
+    "cases": [
+      {
+        "when": "scp_terminal",
+        "model": {
+          "type": "minecraft:model",
+          "model": "terminal:entity/terminal"
+        }
+      }
+    ],
+    "fallback": {
+      "type": "minecraft:model",
+      "model": "minecraft:block/observer"
+    }
+  }
+}

@@ -1,0 +1,20 @@
+name: Terminal
+version: '0.1.0'
+main: fi.alavesa.terminal.TerminalPlugin
+api-version: '1.21'
+author: Piia Alavesa
+description: SCiPNET terminals - computer blocks, LuckPerms login, clearance-gated entries.
+softdepend: [LuckPerms]
+commands:
+  terminal:
+    description: SCiPNET terminal management
+    usage: |
+      /terminal give [player]   (ops - or any player in creative mode)
+      /terminal place           (ops - or any player in creative mode)
+      /terminal remove          (ops - removes the nearest terminal)
+      /terminal admin           (ops - manage the entry database in-game)
+    aliases: [scipnet]
+permissions:
+  terminal.admin:
+    description: Manage terminals and the entry database
+    default: op
