@@ -42,7 +42,8 @@ public final class TerminalManager implements Listener {
     public static final String TAG_ANCHOR = "terminal.anchor";
     public static final String TAG_PART = "terminal.part";
     public static final String TAG_BOX = "terminal.box";
-    public static final String CMD = "scp_terminal";
+    public static final String CMD = "scp_terminal";        // screen lit (also the hand item)
+    public static final String CMD_OFF = "scp_terminal_off"; // powered down
 
     private final TerminalPlugin plugin;
 
@@ -104,11 +105,11 @@ public final class TerminalManager implements Listener {
             display.setPersistent(true);
             display.setShadowRadius(0.6f);
             display.setShadowStrength(0.6f);
-            display.setBrightness(new Display.Brightness(15, 15)); // the CRT glows in the dark
+            // spawns powered DOWN - the screen lights up when someone logs in
             display.setTransformation(new Transformation(
                 new Vector3f(0, 0, 0), new AxisAngle4f(0, 0, 0, 1),
                 new Vector3f(1, 1, 1), new AxisAngle4f(0, 0, 0, 1)));
-            display.setItemStack(modelItem());
+            display.setItemStack(modelItem(CMD_OFF));
             display.addScoreboardTag(TAG_PART);
             display.getPersistentDataContainer().set(plugin.key("anchor"),
                 PersistentDataType.STRING, anchor.getUniqueId().toString());
@@ -147,14 +148,29 @@ public final class TerminalManager implements Listener {
         return true;
     }
 
-    private ItemStack modelItem() {
+    private ItemStack modelItem(String cmd) {
         ItemStack item = new ItemStack(Material.OBSERVER);
         ItemMeta meta = item.getItemMeta();
-        CustomModelDataComponent cmd = meta.getCustomModelDataComponent();
-        cmd.setStrings(List.of(CMD));
-        meta.setCustomModelDataComponent(cmd);
+        CustomModelDataComponent component = meta.getCustomModelDataComponent();
+        component.setStrings(List.of(cmd));
+        meta.setCustomModelDataComponent(component);
         item.setItemMeta(meta);
         return item;
+    }
+
+    /** Light the screen up / power it down: model swap + brightness, the
+     *  same state-change trick SCP-914's body uses. */
+    public void setScreen(java.util.UUID anchorId, boolean on) {
+        if (!(org.bukkit.Bukkit.getEntity(anchorId) instanceof Marker anchor)) return;
+        for (Entity part : anchor.getLocation().getNearbyEntities(2, 2, 2)) {
+            if (!(part instanceof ItemDisplay display)) continue;
+            if (!anchorId.toString().equals(part.getPersistentDataContainer()
+                    .get(plugin.key("anchor"), PersistentDataType.STRING))) continue;
+            display.setItemStack(modelItem(on ? CMD : CMD_OFF));
+            display.setBrightness(on ? new Display.Brightness(15, 15) : null);
+        }
+        anchor.getWorld().playSound(anchor.getLocation(),
+            on ? Sound.BLOCK_NOTE_BLOCK_BIT : Sound.BLOCK_LEVER_CLICK, 0.5f, on ? 1.8f : 0.6f);
     }
 
     /** Snap a yaw to the nearest 90 degrees so terminals sit square. */

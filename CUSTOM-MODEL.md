@@ -10,10 +10,15 @@ Everything the terminal looks like lives in the resource pack under the
 | file | what it paints |
 |---|---|
 | `terminal_case.png` | monitor shell, desk plate |
-| `terminal_screen.png` | the glowing display (drawn fullbright + shade off) |
+| `terminal_screen.png` | the display while someone is LOGGED IN (fullbright) |
+| `terminal_screen_off.png` | the display while idle - dark glass |
 | `terminal_keys.png` | keyboard top |
 | `terminal_dark.png` | stand, undersides |
 | `terminal_vent.png` | the monitor's back |
+
+The on/off swap is automatic: the plugin switches the display between the
+`terminal` and `terminal_off` models (and full/ambient brightness) when the
+first user logs in and the last one leaves.
 
 All 16x16. Keep the filenames - the model
 (`resource-pack/assets/terminal/models/entity/terminal.json`) points at them

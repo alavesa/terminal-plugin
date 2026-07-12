@@ -64,6 +64,22 @@ for i in range(16):                                     # soft edge glow
     screen[i][0] = screen[i][15] = (4, 10, 8, 255)
 png(os.path.join(out, "terminal_screen.png"), screen)
 
+# terminal_screen_off - powered down: near-black glass, one faint reflection
+off = [[(9, 11, 12, 255)] * 16 for _ in range(16)]
+for y in range(16):
+    for x in range(16):
+        if y % 2 == 0:
+            off[y][x] = (7, 9, 10, 255)   # the scanline mask still ghosts through
+for i in range(16):                        # diagonal window reflection
+    for w in range(2):
+        x = i + 3 + w
+        if 0 <= x < 16 and 0 <= 15 - i < 16:
+            off[15 - i][x] = (16, 20, 22, 255)
+for i in range(16):
+    off[0][i] = off[15][i] = (5, 6, 7, 255)
+    off[i][0] = off[i][15] = (5, 6, 7, 255)
+png(os.path.join(out, "terminal_screen_off.png"), off)
+
 # terminal_keys - a key grid on dark plastic
 keys = sheet((36, 39, 44), jitter=3, seed=4)
 for row in range(0, 16, 4):

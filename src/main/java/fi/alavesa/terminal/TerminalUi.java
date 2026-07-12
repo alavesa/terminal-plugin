@@ -94,14 +94,18 @@ public final class TerminalUi implements Listener {
 
     private final TerminalPlugin plugin;
     private final EntryStore store;
+    private final TerminalManager machines;
     private final Map<UUID, Draft> drafts = new HashMap<>();
     /** Open anvil prompt per player: -1 = editing the title, otherwise a line
      *  index (== lines.size() means "append a new line"). */
     private final Map<UUID, Integer> prompts = new HashMap<>();
+    /** Who is sitting at which terminal - drives the screen's on/off state. */
+    private final Map<UUID, UUID> sessions = new HashMap<>();
 
-    public TerminalUi(TerminalPlugin plugin, EntryStore store) {
+    public TerminalUi(TerminalPlugin plugin, EntryStore store, TerminalManager machines) {
         this.plugin = plugin;
         this.store = store;
+        this.machines = machines;
     }
 
     // ------------------------------------------------------------ luckperms
@@ -139,7 +143,41 @@ public final class TerminalUi implements Listener {
         if (!(event.getRightClicked() instanceof Interaction box)) return;
         if (!box.getScoreboardTags().contains(TerminalManager.TAG_BOX)) return;
         event.setCancelled(true);
-        openLogin(event.getPlayer());
+        Player player = event.getPlayer();
+        String anchorId = box.getPersistentDataContainer()
+            .get(plugin.key("anchor"), PersistentDataType.STRING);
+        if (anchorId != null) {
+            UUID anchor = UUID.fromString(anchorId);
+            boolean first = !sessions.containsValue(anchor);
+            sessions.put(player.getUniqueId(), anchor);
+            if (first) machines.setScreen(anchor, true); // the CRT wakes up
+        }
+        openLogin(player);
+    }
+
+    /**
+     * The screen stays lit while ANY terminal window (chest screens or a
+     * typing prompt) is open, and powers down when the last user walks away.
+     * Screen-to-screen hops close one inventory and open the next within a
+     * couple of ticks, so the check runs delayed.
+     */
+    @EventHandler
+    public void onScreenClose(InventoryCloseEvent event) {
+        if (!(event.getPlayer() instanceof Player player)) return;
+        if (!(event.getInventory().getHolder() instanceof Screen)) return;
+        plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
+            if (!player.isOnline()) return;
+            if (player.getOpenInventory().getTopInventory().getHolder() instanceof Screen) return;
+            if (prompts.containsKey(player.getUniqueId())) return;
+            endSession(player);
+        }, 2L);
+    }
+
+    private void endSession(Player player) {
+        UUID anchor = sessions.remove(player.getUniqueId());
+        if (anchor != null && !sessions.containsValue(anchor)) {
+            machines.setScreen(anchor, false); // last one out turns off the light
+        }
     }
 
     public void openLogin(Player player) {
@@ -494,6 +532,7 @@ public final class TerminalUi implements Listener {
 
     @EventHandler
     public void onQuit(PlayerQuitEvent event) {
+        endSession(event.getPlayer());
         drafts.remove(event.getPlayer().getUniqueId());
         prompts.remove(event.getPlayer().getUniqueId());
     }

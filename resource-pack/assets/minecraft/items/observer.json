@@ -9,6 +9,13 @@
           "type": "minecraft:model",
           "model": "terminal:entity/terminal"
         }
+      },
+      {
+        "when": "scp_terminal_off",
+        "model": {
+          "type": "minecraft:model",
+          "model": "terminal:entity/terminal_off"
+        }
       }
     ],
     "fallback": {

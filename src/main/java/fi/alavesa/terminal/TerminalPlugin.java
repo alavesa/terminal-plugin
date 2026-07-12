@@ -30,7 +30,7 @@ public final class TerminalPlugin extends JavaPlugin {
     public void onEnable() {
         store = new EntryStore(this);
         machines = new TerminalManager(this);
-        ui = new TerminalUi(this, store);
+        ui = new TerminalUi(this, store, machines);
         getServer().getPluginManager().registerEvents(machines, this);
         getServer().getPluginManager().registerEvents(ui, this);
         getLogger().info("Terminal enabled - LuckPerms "
