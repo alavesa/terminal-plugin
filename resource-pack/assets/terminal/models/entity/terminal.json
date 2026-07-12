@@ -1,11 +1,11 @@
 {
   "textures": {
-    "particle": "minecraft:block/polished_blackstone",
-    "case": "minecraft:block/polished_blackstone",
-    "dark": "minecraft:block/blackstone",
-    "screen": "minecraft:block/warped_wart_block",
-    "keys": "minecraft:block/polished_blackstone_bricks",
-    "vent": "minecraft:block/iron_block"
+    "particle": "terminal:entity/terminal_case",
+    "case": "terminal:entity/terminal_case",
+    "dark": "terminal:entity/terminal_dark",
+    "screen": "terminal:entity/terminal_screen",
+    "keys": "terminal:entity/terminal_keys",
+    "vent": "terminal:entity/terminal_vent"
   },
   "elements": [
     {
