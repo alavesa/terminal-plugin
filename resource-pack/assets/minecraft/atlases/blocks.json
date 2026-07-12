@@ -1,0 +1,16 @@
+{
+  "sources": [
+    {
+      "type": "directory",
+      "source": "entity",
+      "prefix": "entity/"
+    },
+    {
+      "type": "filter",
+      "pattern": {
+        "namespace": "minecraft",
+        "path": "entity/.*"
+      }
+    }
+  ]
+}

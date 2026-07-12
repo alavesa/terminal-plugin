@@ -20,6 +20,15 @@ The on/off swap is automatic: the plugin switches the display between the
 `terminal` and `terminal_off` models (and full/ambient brightness) when the
 first user logs in and the last one leaves.
 
+> **Why textures turn black/magenta.** Block and item models can only use
+> textures that are stitched into Minecraft's *blocks atlas*, and by default
+> the atlas only collects `textures/block/` and `textures/item/`. Pointing a
+> model at any other folder gives the missing-texture look even though the
+> path is "correct". This pack registers `textures/entity/` into the atlas
+> (`assets/minecraft/atlases/blocks.json`), so every namespace's
+> `textures/entity/` works for models - drop your own Blockbench textures
+> there. If you maintain a separate pack, copy that atlas file into it.
+
 All 16x16. Keep the filenames - the model
 (`resource-pack/assets/terminal/models/entity/terminal.json`) points at them
 by name. The model itself is plain Blockbench-compatible JSON: open it in
