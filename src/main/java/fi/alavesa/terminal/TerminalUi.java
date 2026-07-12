@@ -24,10 +24,20 @@ import org.bukkit.inventory.meta.BookMeta;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.persistence.PersistentDataType;
 
+import org.bukkit.event.inventory.InventoryCloseEvent;
+import org.bukkit.event.inventory.PrepareAnvilEvent;
+import org.bukkit.event.player.PlayerQuitEvent;
+import org.bukkit.inventory.AnvilInventory;
+import org.bukkit.inventory.InventoryView;
+import org.bukkit.inventory.view.AnvilView;
+
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.UUID;
 
 /**
  * Everything on the screen. Right-clicking a terminal opens the SCiPNET
@@ -56,8 +66,18 @@ public final class TerminalUi implements Listener {
         @Override public Inventory getInventory() { return inventory; }
     }
 
+    /** An entry being composed at the terminal (the custom draft editor). */
+    private static final class Draft {
+        String title = "Untitled";
+        final List<String> lines = new ArrayList<>();
+    }
+
     private final TerminalPlugin plugin;
     private final EntryStore store;
+    private final Map<UUID, Draft> drafts = new HashMap<>();
+    /** Open anvil prompt per player: -1 = editing the title, otherwise a line
+     *  index (== lines.size() means "append a new line"). */
+    private final Map<UUID, Integer> prompts = new HashMap<>();
 
     public TerminalUi(TerminalPlugin plugin, EntryStore store) {
         this.plugin = plugin;
@@ -148,8 +168,9 @@ public final class TerminalUi implements Listener {
         inv.setItem(45, named(Material.ARROW, Component.text("Previous", NamedTextColor.GRAY), List.of()));
         inv.setItem(49, mayWrite
             ? named(Material.WRITABLE_BOOK, Component.text("NEW ENTRY", NamedTextColor.GREEN),
-                List.of(line("Take a draft book. Write it, SIGN it,", NamedTextColor.GRAY),
-                        line("and it is filed at your clearance level.", NamedTextColor.GRAY)))
+                List.of(line("Click: write here on the terminal.", NamedTextColor.GRAY),
+                        line("Shift-click: take a physical draft book", NamedTextColor.GRAY),
+                        line("to write anywhere and file by signing.", NamedTextColor.GRAY)))
             : named(Material.GRAY_DYE, Component.text("WRITE ACCESS DENIED", NamedTextColor.DARK_GRAY),
                 List.of(line("Level " + store.writeClearance() + " clearance required to write.",
                     NamedTextColor.DARK_RED))));
@@ -200,7 +221,15 @@ public final class TerminalUi implements Listener {
             case "list" -> {
                 if (slot == 45) { openList(player, screen.page - 1); return; }
                 if (slot == 53) { openList(player, screen.page + 1); return; }
-                if (slot == 49) { startDraft(player); return; }
+                if (slot == 49) {
+                    if (clearance(player) < store.writeClearance()) return;
+                    // normal click: the terminal's own draft editor, right here.
+                    // shift-click: a physical draft book for writing on the go
+                    // (signed anywhere, it files through the normal book GUI).
+                    if (event.isShiftClick()) startDraft(player);
+                    else openEditor(player);
+                    return;
+                }
                 EntryStore.Entry entry = clickedEntry(event);
                 if (entry == null) return;
                 if (entry.clearance() > clearance(player)) {
@@ -209,6 +238,30 @@ public final class TerminalUi implements Listener {
                     return;
                 }
                 openBook(player, entry);
+            }
+            case "editor" -> {
+                Draft draft = drafts.computeIfAbsent(player.getUniqueId(), k -> new Draft());
+                if (slot == 4) { openPrompt(player, -1); return; }
+                if (slot == 45) {
+                    drafts.remove(player.getUniqueId());
+                    player.sendActionBar(line("Draft discarded.", NamedTextColor.GRAY));
+                    openList(player, 0);
+                    return;
+                }
+                if (slot == 49) { saveDraft(player, draft); return; }
+                if (slot >= 9 && slot < 45) {
+                    int index = slot - 9;
+                    if (index < draft.lines.size()) {
+                        if (event.isShiftClick() && event.isRightClick()) {
+                            draft.lines.remove(index);
+                            openEditor(player);
+                        } else {
+                            openPrompt(player, index);
+                        }
+                    } else if (index == draft.lines.size()) {
+                        openPrompt(player, index); // the ADD LINE slot
+                    }
+                }
             }
             case "admin" -> {
                 if (!player.hasPermission("terminal.admin")) { player.closeInventory(); return; }
@@ -282,7 +335,137 @@ public final class TerminalUi implements Listener {
         return out.build();
     }
 
-    // ------------------------------------------------------------- writing
+    // ----------------------------------------------- the terminal's editor
+
+    /**
+     * The SCiPNET draft editor: composing happens ON the terminal, no book
+     * item involved. The title and every line are typed through anvil
+     * prompts (the SCP-294 pattern); SAVE files the entry at the author's
+     * clearance. A physical draft book (shift-click NEW ENTRY) still uses
+     * the normal vanilla book GUI instead - this editor is only for writing
+     * at the terminal itself.
+     */
+    public void openEditor(Player player) {
+        Draft draft = drafts.computeIfAbsent(player.getUniqueId(), k -> new Draft());
+        Screen screen = new Screen("editor", 0);
+        Inventory inv = Bukkit.createInventory(screen, 54,
+            Component.text("SCiPNET // NEW ENTRY", NamedTextColor.DARK_GRAY));
+        screen.inventory = inv;
+        inv.setItem(4, named(Material.NAME_TAG,
+            Component.text("Title: ", NamedTextColor.GRAY)
+                .append(Component.text(draft.title, NamedTextColor.WHITE)),
+            List.of(line("Click to retitle.", NamedTextColor.DARK_GRAY))));
+        for (int i = 0; i < draft.lines.size() && i < 36; i++) {
+            inv.setItem(9 + i, named(Material.PAPER,
+                Component.text(draft.lines.get(i), NamedTextColor.WHITE),
+                List.of(line("Click: rewrite", NamedTextColor.DARK_GRAY),
+                        line("Shift+Right-click: remove", NamedTextColor.DARK_GRAY))));
+        }
+        if (draft.lines.size() < 36) {
+            inv.setItem(9 + draft.lines.size(), named(Material.LIME_DYE,
+                Component.text("ADD LINE", NamedTextColor.GREEN), List.of()));
+        }
+        inv.setItem(45, named(Material.RED_CONCRETE,
+            Component.text("DISCARD", NamedTextColor.RED), List.of()));
+        inv.setItem(49, named(Material.LIME_CONCRETE,
+            Component.text("SAVE ENTRY", NamedTextColor.GREEN).decoration(TextDecoration.BOLD, true),
+            List.of(line("Filed at Level " + clearance(player) + ".", NamedTextColor.GRAY))));
+        inv.setItem(53, named(Material.BOOK, Component.text("Redactions", NamedTextColor.AQUA),
+            List.of(line("[[text]] - your eyes only", NamedTextColor.GRAY),
+                    line("[[3:text]] - Level 3 and up", NamedTextColor.GRAY),
+                    line("Others see a black bar.", NamedTextColor.DARK_GRAY))));
+        player.openInventory(inv);
+    }
+
+    /** One anvil prompt: type, then take the paper from the result slot. */
+    private void openPrompt(Player player, int index) {
+        InventoryView view = player.openAnvil(null, true);
+        if (view == null) return;
+        prompts.put(player.getUniqueId(), index);
+        view.getTopInventory().setItem(0, named(Material.PAPER,
+            Component.text(index == -1 ? "Type the title..." : "Type the line...", NamedTextColor.GRAY),
+            List.of(line("Then take the paper from the right.", NamedTextColor.DARK_GRAY))));
+    }
+
+    @EventHandler
+    public void onPreparePrompt(PrepareAnvilEvent event) {
+        if (!(event.getView().getPlayer() instanceof Player player)) return;
+        if (!prompts.containsKey(player.getUniqueId())) return;
+        AnvilView view = event.getView();
+        view.setRepairCost(0);
+        String text = view.getRenameText();
+        if (text == null || text.isBlank()) { event.setResult(null); return; }
+        event.setResult(named(Material.PAPER, Component.text(text, NamedTextColor.WHITE),
+            List.of(line("Take me to confirm.", NamedTextColor.DARK_GRAY))));
+    }
+
+    @EventHandler
+    public void onPromptClick(InventoryClickEvent event) {
+        if (!(event.getWhoClicked() instanceof Player player)) return;
+        Integer index = prompts.get(player.getUniqueId());
+        if (index == null || !(event.getView().getTopInventory() instanceof AnvilInventory)) return;
+        event.setCancelled(true);
+        if (event.getRawSlot() != 2 || event.getCurrentItem() == null
+            || event.getCurrentItem().getType() != Material.PAPER) return;
+        String text = event.getView() instanceof AnvilView anvil ? anvil.getRenameText() : null;
+        if (text == null || text.isBlank()) return;
+        prompts.remove(player.getUniqueId());
+        Draft draft = drafts.computeIfAbsent(player.getUniqueId(), k -> new Draft());
+        if (index == -1) draft.title = text;
+        else if (index >= draft.lines.size()) draft.lines.add(text);
+        else draft.lines.set(index, text);
+        player.playSound(player.getLocation(), Sound.BLOCK_NOTE_BLOCK_BIT, 0.7f, 1.4f);
+        openEditor(player);
+    }
+
+    /** Esc out of a prompt: back to the editor, nothing lost. */
+    @EventHandler
+    public void onPromptClose(InventoryCloseEvent event) {
+        if (!(event.getPlayer() instanceof Player player)) return;
+        if (!(event.getInventory() instanceof AnvilInventory anvil)) return;
+        if (!prompts.containsKey(player.getUniqueId())) return;
+        anvil.clear(); // the prompt paper is a ghost item, never dropped
+        prompts.remove(player.getUniqueId());
+        plugin.getServer().getScheduler().runTask(plugin, () -> {
+            if (player.isOnline() && drafts.containsKey(player.getUniqueId())) openEditor(player);
+        });
+    }
+
+    private void saveDraft(Player player, Draft draft) {
+        if (draft.lines.isEmpty()) {
+            player.sendActionBar(line("Nothing written yet.", NamedTextColor.RED));
+            return;
+        }
+        // lines -> book pages, greedily, so long entries read naturally
+        List<String> pages = new ArrayList<>();
+        StringBuilder page = new StringBuilder();
+        int linesOnPage = 0;
+        for (String text : draft.lines) {
+            if (linesOnPage >= 13 || page.length() + text.length() > 230) {
+                pages.add(page.toString());
+                page.setLength(0);
+                linesOnPage = 0;
+            }
+            if (page.length() > 0) page.append('\n');
+            page.append(text);
+            linesOnPage++;
+        }
+        if (page.length() > 0) pages.add(page.toString());
+        EntryStore.Entry entry = store.add(draft.title, player.getName(), clearance(player), pages);
+        drafts.remove(player.getUniqueId());
+        player.sendActionBar(line("Entry filed: " + entry.title()
+            + " (Level " + entry.clearance() + ")", NamedTextColor.GRAY));
+        player.playSound(player.getLocation(), Sound.BLOCK_NOTE_BLOCK_BIT, 0.8f, 1.6f);
+        openList(player, 0);
+    }
+
+    @EventHandler
+    public void onQuit(PlayerQuitEvent event) {
+        drafts.remove(event.getPlayer().getUniqueId());
+        prompts.remove(event.getPlayer().getUniqueId());
+    }
+
+    // ------------------------------------- physical drafts (vanilla book GUI)
 
     private void startDraft(Player player) {
         player.closeInventory();
