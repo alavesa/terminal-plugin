@@ -1,0 +1,38 @@
+{
+  "providers": [
+    {
+      "type": "space",
+      "advances": {
+        "": -8,
+        "": -60
+      }
+    },
+    {
+      "type": "bitmap",
+      "file": "terminal:font/gui_chest54.png",
+      "ascent": 13,
+      "height": 222,
+      "chars": [
+        ""
+      ]
+    },
+    {
+      "type": "bitmap",
+      "file": "terminal:font/gui_chest27.png",
+      "ascent": 13,
+      "height": 166,
+      "chars": [
+        ""
+      ]
+    },
+    {
+      "type": "bitmap",
+      "file": "terminal:font/gui_anvil.png",
+      "ascent": 13,
+      "height": 166,
+      "chars": [
+        ""
+      ]
+    }
+  ]
+}

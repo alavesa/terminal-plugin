@@ -1,5 +1,6 @@
 package fi.alavesa.terminal;
 
+import net.kyori.adventure.key.Key;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.format.TextDecoration;
@@ -29,6 +30,7 @@ import org.bukkit.event.inventory.PrepareAnvilEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.inventory.AnvilInventory;
 import org.bukkit.inventory.InventoryView;
+import org.bukkit.inventory.MenuType;
 import org.bukkit.inventory.view.AnvilView;
 
 import java.text.SimpleDateFormat;
@@ -56,6 +58,24 @@ public final class TerminalUi implements Listener {
 
     private static final int PAGE_SIZE = 45;
     private static final SimpleDateFormat DATE = new SimpleDateFormat("yyyy-MM-dd");
+
+    /**
+     * The terminal look. Each screen's title is a font glyph that repaints
+     * the whole vanilla GUI as a SCiPNET panel (font terminal:gui, drawn in
+     * white so the bitmap keeps its own colors; a negative space advance
+     * first rewinds the title cursor to the GUI's top-left corner). Only the
+     * terminal's own screens carry these titles - every other chest and
+     * anvil on the server stays vanilla.
+     */
+    private static final String GLYPH_CHEST54 = "";
+    private static final String GLYPH_CHEST27 = "";
+    private static final String GLYPH_ANVIL = "";
+
+    private static Component overlay(String glyph) {
+        return Component.text(glyph)
+            .font(Key.key("terminal", "gui"))
+            .color(NamedTextColor.WHITE);
+    }
 
     /** Marks our inventories and remembers which screen + page they show. */
     private static final class Screen implements InventoryHolder {
@@ -124,8 +144,7 @@ public final class TerminalUi implements Listener {
 
     public void openLogin(Player player) {
         Screen screen = new Screen("login", 0);
-        Inventory inv = Bukkit.createInventory(screen, 27,
-            Component.text("SCiPNET // LOGIN", NamedTextColor.DARK_GRAY));
+        Inventory inv = Bukkit.createInventory(screen, 27, overlay(GLYPH_CHEST27));
         screen.inventory = inv;
         inv.setItem(11, named(Material.PLAYER_HEAD, Component.text(player.getName(), NamedTextColor.WHITE),
             List.of(line("Identity confirmed.", NamedTextColor.GRAY))));
@@ -146,8 +165,7 @@ public final class TerminalUi implements Listener {
         int pages = Math.max(1, (entries.size() + PAGE_SIZE - 1) / PAGE_SIZE);
         page = Math.max(0, Math.min(page, pages - 1));
         Screen screen = new Screen("list", page);
-        Inventory inv = Bukkit.createInventory(screen, 54,
-            Component.text("SCiPNET // ENTRIES " + (page + 1) + "/" + pages, NamedTextColor.DARK_GRAY));
+        Inventory inv = Bukkit.createInventory(screen, 54, overlay(GLYPH_CHEST54));
         screen.inventory = inv;
         int level = clearance(player);
         for (int i = 0; i < PAGE_SIZE; i++) {
@@ -165,7 +183,8 @@ public final class TerminalUi implements Listener {
             }
         }
         boolean mayWrite = level >= store.writeClearance();
-        inv.setItem(45, named(Material.ARROW, Component.text("Previous", NamedTextColor.GRAY), List.of()));
+        inv.setItem(45, named(Material.ARROW, Component.text("Previous", NamedTextColor.GRAY),
+            List.of(line("Page " + (page + 1) + "/" + pages, NamedTextColor.DARK_GRAY))));
         inv.setItem(49, mayWrite
             ? named(Material.WRITABLE_BOOK, Component.text("NEW ENTRY", NamedTextColor.GREEN),
                 List.of(line("Click: write here on the terminal.", NamedTextColor.GRAY),
@@ -174,7 +193,8 @@ public final class TerminalUi implements Listener {
             : named(Material.GRAY_DYE, Component.text("WRITE ACCESS DENIED", NamedTextColor.DARK_GRAY),
                 List.of(line("Level " + store.writeClearance() + " clearance required to write.",
                     NamedTextColor.DARK_RED))));
-        inv.setItem(53, named(Material.ARROW, Component.text("Next", NamedTextColor.GRAY), List.of()));
+        inv.setItem(53, named(Material.ARROW, Component.text("Next", NamedTextColor.GRAY),
+            List.of(line("Page " + (page + 1) + "/" + pages, NamedTextColor.DARK_GRAY))));
         player.openInventory(inv);
     }
 
@@ -183,8 +203,7 @@ public final class TerminalUi implements Listener {
         int pages = Math.max(1, (entries.size() + PAGE_SIZE - 1) / PAGE_SIZE);
         page = Math.max(0, Math.min(page, pages - 1));
         Screen screen = new Screen("admin", page);
-        Inventory inv = Bukkit.createInventory(screen, 54,
-            Component.text("SCiPNET // DATABASE ADMIN " + (page + 1) + "/" + pages, NamedTextColor.DARK_RED));
+        Inventory inv = Bukkit.createInventory(screen, 54, overlay(GLYPH_CHEST54));
         screen.inventory = inv;
         for (int i = 0; i < PAGE_SIZE; i++) {
             int index = page * PAGE_SIZE + i;
@@ -195,12 +214,14 @@ public final class TerminalUi implements Listener {
                 line("Left-click: clearance +1  Right-click: -1", NamedTextColor.GRAY),
                 line("Shift+Right-click: EXPUNGE", NamedTextColor.RED)));
         }
-        inv.setItem(45, named(Material.ARROW, Component.text("Previous", NamedTextColor.GRAY), List.of()));
+        inv.setItem(45, named(Material.ARROW, Component.text("Previous", NamedTextColor.GRAY),
+            List.of(line("Page " + (page + 1) + "/" + pages, NamedTextColor.DARK_GRAY))));
         inv.setItem(49, named(Material.REPEATER,
             Component.text("Write access: Level " + store.writeClearance(), NamedTextColor.AQUA),
             List.of(line("Minimum clearance to file new entries.", NamedTextColor.GRAY),
                     line("Left-click: +1  Right-click: -1", NamedTextColor.GRAY))));
-        inv.setItem(53, named(Material.ARROW, Component.text("Next", NamedTextColor.GRAY), List.of()));
+        inv.setItem(53, named(Material.ARROW, Component.text("Next", NamedTextColor.GRAY),
+            List.of(line("Page " + (page + 1) + "/" + pages, NamedTextColor.DARK_GRAY))));
         player.openInventory(inv);
     }
 
@@ -348,8 +369,7 @@ public final class TerminalUi implements Listener {
     public void openEditor(Player player) {
         Draft draft = drafts.computeIfAbsent(player.getUniqueId(), k -> new Draft());
         Screen screen = new Screen("editor", 0);
-        Inventory inv = Bukkit.createInventory(screen, 54,
-            Component.text("SCiPNET // NEW ENTRY", NamedTextColor.DARK_GRAY));
+        Inventory inv = Bukkit.createInventory(screen, 54, overlay(GLYPH_CHEST54));
         screen.inventory = inv;
         inv.setItem(4, named(Material.NAME_TAG,
             Component.text("Title: ", NamedTextColor.GRAY)
@@ -377,13 +397,23 @@ public final class TerminalUi implements Listener {
         player.openInventory(inv);
     }
 
-    /** One anvil prompt: type, then take the paper from the result slot. */
+    /**
+     * One anvil prompt: type, then take the paper from the result slot.
+     * Editing something that already has text PREFILLS the field with it
+     * (the anvil's rename box starts from the input item's name), so a
+     * misclick never wipes a written line - Esc backs out unchanged.
+     */
     private void openPrompt(Player player, int index) {
-        InventoryView view = player.openAnvil(null, true);
-        if (view == null) return;
+        Draft draft = drafts.computeIfAbsent(player.getUniqueId(), k -> new Draft());
+        String current = index == -1 ? draft.title
+            : index < draft.lines.size() ? draft.lines.get(index) : "";
+        InventoryView view = MenuType.ANVIL.create(player, overlay(GLYPH_ANVIL));
+        player.openInventory(view);
         prompts.put(player.getUniqueId(), index);
-        view.getTopInventory().setItem(0, named(Material.PAPER,
-            Component.text(index == -1 ? "Type the title..." : "Type the line...", NamedTextColor.GRAY),
+        Component name = current.isEmpty()
+            ? Component.text(index == -1 ? "Type the title..." : "Type the line...", NamedTextColor.GRAY)
+            : Component.text(current, NamedTextColor.WHITE);
+        view.getTopInventory().setItem(0, named(Material.PAPER, name,
             List.of(line("Then take the paper from the right.", NamedTextColor.DARK_GRAY))));
     }
 
@@ -410,6 +440,9 @@ public final class TerminalUi implements Listener {
         String text = event.getView() instanceof AnvilView anvil ? anvil.getRenameText() : null;
         if (text == null || text.isBlank()) return;
         prompts.remove(player.getUniqueId());
+        // empty the anvil BEFORE the screen changes - whatever is left in it
+        // when it closes would be handed to the player (the ghost-paper bug)
+        event.getView().getTopInventory().clear();
         Draft draft = drafts.computeIfAbsent(player.getUniqueId(), k -> new Draft());
         if (index == -1) draft.title = text;
         else if (index >= draft.lines.size()) draft.lines.add(text);
