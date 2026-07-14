@@ -1,5 +1,5 @@
 name: Terminal
-version: '0.5.0'
+version: '0.5.1'
 main: fi.alavesa.terminal.TerminalPlugin
 api-version: '1.21'
 author: Piia Alavesa

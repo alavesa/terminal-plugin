@@ -23,6 +23,8 @@ import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.event.player.PlayerItemHeldEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
+import org.bukkit.event.entity.PlayerDeathEvent;
+import org.bukkit.event.player.PlayerRespawnEvent;
 import org.bukkit.event.player.PlayerToggleSneakEvent;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.InventoryHolder;
@@ -46,8 +48,13 @@ import java.util.UUID;
  * with scanlines; scroll the hotbar to hop between cameras; sneak to snap
  * back to the body.
  *
- * The body is not safe: any hit on it lands ON THE VIEWER and rips them out
- * of the grid. Redacted cameras (redact level above the viewer's LuckPerms
+ * The body is not safe - and it is REAL: the viewer's whole inventory
+ * moves onto the double when they jack in (armor worn, weapon in hand, the
+ * rest inside). Hits on the body hurt the distant viewer, who is warned but
+ * NOT pulled back - defending the body means choosing to unplug. If the
+ * body's owner dies while wired in, the double spills every item where it
+ * stands and the owner dies for real, respawning at spawn like any corpse:
+ * there is no walking back to the same spot. Redacted cameras (redact level above the viewer's LuckPerms
  * clearance; terminal.admin sees all) connect but show nothing - a black
  * frame with hazard slashes, "FEED REDACTED".
  *
@@ -131,8 +138,17 @@ public final class CctvViewer implements Listener {
         if (all.isEmpty()) return;
         index = Math.floorMod(index, all.size());
 
-        // the body double: their skin on its head, their armor, the monitor
+        // the whole inventory rides the body: snapshot it (crash-safe, in
+        // PDC as bytes), then strip the player - a spectator carries nothing
         Location at = player.getLocation();
+        ItemStack[] carried = player.getInventory().getContents();
+        player.getPersistentDataContainer().set(plugin.key("cctv_inv"),
+            PersistentDataType.BYTE_ARRAY, ItemStack.serializeItemsAsBytes(carried));
+        var inv = player.getInventory();
+        ItemStack chest = inv.getChestplate(), legs = inv.getLeggings(), boots = inv.getBoots();
+        ItemStack hand = inv.getItemInMainHand();
+        inv.clear();
+
         ArmorStand body = at.getWorld().spawn(at, ArmorStand.class, stand -> {
             stand.setPersistent(true);
             stand.setArms(true);
@@ -145,11 +161,16 @@ public final class CctvViewer implements Listener {
             skull.setOwningPlayer(player);
             head.setItemMeta(skull);
             stand.getEquipment().setHelmet(head);
-            var inv = player.getInventory();
-            if (inv.getChestplate() != null) stand.getEquipment().setChestplate(inv.getChestplate().clone());
-            if (inv.getLeggings() != null) stand.getEquipment().setLeggings(inv.getLeggings().clone());
-            if (inv.getBoots() != null) stand.getEquipment().setBoots(inv.getBoots().clone());
-            stand.getEquipment().setItemInMainHand(cameras.buildMonitor());
+            // the REAL gear, worn where everyone can see what's for taking
+            if (chest != null) stand.getEquipment().setChestplate(chest);
+            if (legs != null) stand.getEquipment().setLeggings(legs);
+            if (boots != null) stand.getEquipment().setBoots(boots);
+            stand.getEquipment().setItemInMainHand(hand);
+            // no pickpocketing the mannequin piece by piece - loot comes
+            // from killing it, not clicking it
+            for (var slot : org.bukkit.inventory.EquipmentSlot.values()) {
+                stand.addEquipmentLock(slot, ArmorStand.LockType.REMOVING_OR_CHANGING);
+            }
         });
 
         // crash-safe backup BEFORE the gamemode flips
@@ -232,6 +253,12 @@ public final class CctvViewer implements Listener {
         if (body != null) body.remove();
         player.teleport(back);
         player.setGameMode(session.mode());
+        byte[] stored = player.getPersistentDataContainer()
+            .get(plugin.key("cctv_inv"), PersistentDataType.BYTE_ARRAY);
+        if (stored != null) {
+            player.getInventory().setContents(ItemStack.deserializeItemsFromBytes(stored));
+        }
+        player.getPersistentDataContainer().remove(plugin.key("cctv_inv"));
         player.getPersistentDataContainer().remove(plugin.key("cctv_back"));
         if (reason != null) {
             player.sendActionBar(line(reason, NamedTextColor.GRAY));
@@ -260,7 +287,9 @@ public final class CctvViewer implements Listener {
         connect(event.getPlayer(), session.index() + step);
     }
 
-    /** The body is not safe: hits land on the viewer and end the feed. */
+    /** Hits on the body hurt the DISTANT viewer - warned, not rescued.
+     *  A killing blow spills everything the body carries where it stands,
+     *  and the owner dies for real. */
     @EventHandler(ignoreCancelled = true)
     public void onBodyHit(EntityDamageByEntityEvent event) {
         if (!(event.getEntity() instanceof ArmorStand stand)) return;
@@ -274,11 +303,62 @@ public final class CctvViewer implements Listener {
             stand.remove(); // orphan
             return;
         }
-        jackOut(player, "Someone found your body.");
-        player.damage(Math.max(1.0, event.getDamage()));
+        double damage = Math.max(1.0, event.getDamage());
+        stand.getWorld().playSound(stand.getLocation(), Sound.ENTITY_PLAYER_HURT, 0.9f, 1.0f);
+        if (player.getHealth() - damage <= 0.5) {
+            player.setHealth(0.0); // onDeath spills the body and cleans up
+            return;
+        }
+        player.setHealth(player.getHealth() - damage);
+        player.playHurtAnimation(0);
+        player.sendActionBar(Component.text("YOUR BODY IS UNDER ATTACK",
+            NamedTextColor.RED, TextDecoration.BOLD));
+        player.playSound(player.getLocation(), Sound.ENTITY_WARDEN_HEARTBEAT, 1f, 1.4f);
     }
 
-    /** Quit mid-feed: clean the body now, restore the player on join. */
+    /** Death while wired in - by the body's wounds or anything else: the
+     *  double spills the whole inventory where IT stands, and the player
+     *  respawns like any other corpse. No walking back. */
+    @EventHandler
+    public void onDeath(PlayerDeathEvent event) {
+        Player player = event.getPlayer();
+        Session session = sessions.remove(player.getUniqueId());
+        if (session == null) return;
+        player.setSpectatorTarget(null);
+        Entity body = plugin.getServer().getEntity(session.body());
+        Location spill = body != null ? body.getLocation() : session.back();
+        byte[] stored = player.getPersistentDataContainer()
+            .get(plugin.key("cctv_inv"), PersistentDataType.BYTE_ARRAY);
+        if (stored != null) {
+            for (ItemStack item : ItemStack.deserializeItemsFromBytes(stored)) {
+                if (item != null && !item.getType().isAir()) {
+                    spill.getWorld().dropItemNaturally(spill, item);
+                }
+            }
+        }
+        if (body != null) body.remove();
+        player.getPersistentDataContainer().remove(plugin.key("cctv_inv"));
+        player.getPersistentDataContainer().remove(plugin.key("cctv_back"));
+        // restore only the GAMEMODE on respawn - never the location
+        player.getPersistentDataContainer().set(plugin.key("cctv_gm"),
+            PersistentDataType.STRING, session.mode().name());
+        event.getDrops().clear(); // the loot is at the body, not at the lens
+    }
+
+    @EventHandler
+    public void onRespawn(PlayerRespawnEvent event) {
+        Player player = event.getPlayer();
+        String mode = player.getPersistentDataContainer()
+            .get(plugin.key("cctv_gm"), PersistentDataType.STRING);
+        if (mode == null) return;
+        plugin.getServer().getScheduler().runTask(plugin, () -> {
+            player.setGameMode(GameMode.valueOf(mode));
+            player.getPersistentDataContainer().remove(plugin.key("cctv_gm"));
+        });
+    }
+
+    /** Quit mid-feed: the body is cleaned up, the inventory waits in PDC
+     *  and comes home on the next join (the crash path handles it). */
     @EventHandler
     public void onQuit(PlayerQuitEvent event) {
         Session session = sessions.remove(event.getPlayer().getUniqueId());
@@ -303,6 +383,12 @@ public final class CctvViewer implements Listener {
                     Double.parseDouble(p[3]), Float.parseFloat(p[4]), Float.parseFloat(p[5])));
                 player.setGameMode(GameMode.valueOf(p[6]));
             }
+            byte[] invBytes = player.getPersistentDataContainer()
+                .get(plugin.key("cctv_inv"), PersistentDataType.BYTE_ARRAY);
+            if (invBytes != null) {
+                player.getInventory().setContents(ItemStack.deserializeItemsFromBytes(invBytes));
+            }
+            player.getPersistentDataContainer().remove(plugin.key("cctv_inv"));
             player.getPersistentDataContainer().remove(plugin.key("cctv_back"));
         });
     }
