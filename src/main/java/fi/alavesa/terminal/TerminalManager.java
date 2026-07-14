@@ -85,7 +85,7 @@ public final class TerminalManager implements Listener {
         if (player.getGameMode() != org.bukkit.GameMode.CREATIVE) {
             event.getItemInHand().setAmount(event.getItemInHand().getAmount() - 1);
         }
-        player.sendActionBar(Component.text("Terminal installed.", NamedTextColor.GRAY, TextDecoration.ITALIC));
+        Msg.actionbar(player, Component.text("Terminal installed.", NamedTextColor.GRAY, TextDecoration.ITALIC));
     }
 
     /** Spawn the machine at the given block, screen turned toward the placer. */

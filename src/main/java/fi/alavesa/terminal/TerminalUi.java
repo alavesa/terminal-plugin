@@ -292,7 +292,7 @@ public final class TerminalUi implements Listener {
                 EntryStore.Entry entry = clickedEntry(event);
                 if (entry == null) return;
                 if (entry.clearance() > clearance(player)) {
-                    player.sendActionBar(line("Access denied.", NamedTextColor.RED));
+                    Msg.actionbar(player, line("Access denied.", NamedTextColor.RED));
                     player.playSound(player.getLocation(), Sound.ENTITY_VILLAGER_NO, 0.8f, 0.8f);
                     return;
                 }
@@ -303,7 +303,7 @@ public final class TerminalUi implements Listener {
                 if (slot == 4) { openPrompt(player, -1); return; }
                 if (slot == 45) {
                     drafts.remove(player.getUniqueId());
-                    player.sendActionBar(line("Draft discarded.", NamedTextColor.GRAY));
+                    Msg.actionbar(player, line("Draft discarded.", NamedTextColor.GRAY));
                     openList(player, 0);
                     return;
                 }
@@ -335,7 +335,7 @@ public final class TerminalUi implements Listener {
                 if (entry == null) return;
                 if (event.isShiftClick() && event.isRightClick()) {
                     store.delete(entry.id());
-                    player.sendActionBar(line("Entry expunged: " + entry.title(), NamedTextColor.RED));
+                    Msg.actionbar(player, line("Entry expunged: " + entry.title(), NamedTextColor.RED));
                 } else {
                     store.setClearance(entry.id(), entry.clearance() + (event.isRightClick() ? -1 : 1));
                 }
@@ -504,7 +504,7 @@ public final class TerminalUi implements Listener {
 
     private void saveDraft(Player player, Draft draft) {
         if (draft.lines.isEmpty()) {
-            player.sendActionBar(line("Nothing written yet.", NamedTextColor.RED));
+            Msg.actionbar(player, line("Nothing written yet.", NamedTextColor.RED));
             return;
         }
         // lines -> book pages, greedily, so long entries read naturally
@@ -524,7 +524,7 @@ public final class TerminalUi implements Listener {
         if (page.length() > 0) pages.add(page.toString());
         EntryStore.Entry entry = store.add(draft.title, player.getName(), clearance(player), pages);
         drafts.remove(player.getUniqueId());
-        player.sendActionBar(line("Entry filed: " + entry.title()
+        Msg.actionbar(player, line("Entry filed: " + entry.title()
             + " (Level " + entry.clearance() + ")", NamedTextColor.GRAY));
         player.playSound(player.getLocation(), Sound.BLOCK_NOTE_BLOCK_BIT, 0.8f, 1.6f);
         openList(player, 0);
@@ -553,10 +553,10 @@ public final class TerminalUi implements Listener {
         draft.setItemMeta(meta);
         var leftover = player.getInventory().addItem(draft);
         if (!leftover.isEmpty()) {
-            player.sendActionBar(line("No room for the draft book.", NamedTextColor.RED));
+            Msg.actionbar(player, line("No room for the draft book.", NamedTextColor.RED));
             return;
         }
-        player.sendActionBar(line("Write the entry, then SIGN the book to file it.", NamedTextColor.GRAY));
+        Msg.actionbar(player, line("Write the entry, then SIGN the book to file it.", NamedTextColor.GRAY));
         player.playSound(player.getLocation(), Sound.ITEM_BOOK_PUT, 0.8f, 1.2f);
     }
 
@@ -579,7 +579,7 @@ public final class TerminalUi implements Listener {
         }
         EntryStore.Entry entry = store.add(title, player.getName(), clearance(player), pages);
         player.getInventory().setItem(event.getSlot(), null);
-        player.sendActionBar(line("Entry filed: " + entry.title()
+        Msg.actionbar(player, line("Entry filed: " + entry.title()
             + " (Level " + entry.clearance() + ")", NamedTextColor.GRAY));
         player.playSound(player.getLocation(), Sound.BLOCK_NOTE_BLOCK_BIT, 0.8f, 1.6f);
     }
