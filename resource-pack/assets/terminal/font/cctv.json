@@ -1,0 +1,22 @@
+{
+  "providers": [
+    {
+      "type": "bitmap",
+      "file": "terminal:font/cctv_scan.png",
+      "ascent": 130,
+      "height": 300,
+      "chars": [
+        ""
+      ]
+    },
+    {
+      "type": "bitmap",
+      "file": "terminal:font/cctv_redacted.png",
+      "ascent": 130,
+      "height": 300,
+      "chars": [
+        ""
+      ]
+    }
+  ]
+}

@@ -25,6 +25,8 @@ public final class TerminalPlugin extends JavaPlugin {
     private EntryStore store;
     private TerminalManager machines;
     private TerminalUi ui;
+    private CctvManager cctv;
+    private CctvViewer viewer;
 
     @Override
     public void onEnable() {
@@ -33,9 +35,19 @@ public final class TerminalPlugin extends JavaPlugin {
         ui = new TerminalUi(this, store, machines);
         getServer().getPluginManager().registerEvents(machines, this);
         getServer().getPluginManager().registerEvents(ui, this);
+        cctv = new CctvManager(this);
+        viewer = new CctvViewer(this, cctv);
+        getServer().getPluginManager().registerEvents(viewer, this);
+        getServer().getScheduler().runTaskTimer(this, cctv::panTick, 40L, 4L);
+        getServer().getScheduler().runTaskTimer(this, viewer::feedTick, 40L, 15L);
         getLogger().info("Terminal enabled - LuckPerms "
             + (Bukkit.getPluginManager().getPlugin("LuckPerms") != null
                 ? "found" : "NOT found (everyone reads as Personnel, Level 0)"));
+    }
+
+    @Override
+    public void onDisable() {
+        if (viewer != null) viewer.shutdown();
     }
 
     /** Ops always; anyone else only while in creative mode. */
@@ -73,6 +85,59 @@ public final class TerminalPlugin extends JavaPlugin {
                 return machines.removeNearest(player)
                     ? true : error(sender, "No terminal within 4 blocks.");
             }
+            case "cctv" -> {
+                if (!sender.hasPermission("terminal.cctv")) return error(sender, "No permission.");
+                if (!(sender instanceof Player player)) return error(sender, "Players only.");
+                if (args.length < 2) return error(sender,
+                    "/terminal cctv place | monitor | remove | list | redact <0-5> | pan");
+                switch (args[1].toLowerCase()) {
+                    case "place" -> cctv.place(player);
+                    case "monitor" -> {
+                        player.getInventory().addItem(cctv.buildMonitor()).values().forEach(left ->
+                            player.getWorld().dropItemNaturally(player.getLocation(), left));
+                        sender.sendMessage(Component.text(
+                            "CCTV monitor issued. Use it to jack into the grid; sneak to come back.",
+                            NamedTextColor.AQUA));
+                    }
+                    case "remove" -> {
+                        if (!cctv.removeNearest(player)) return error(sender, "No camera within 5 blocks.");
+                    }
+                    case "list" -> {
+                        var all = cctv.cameras();
+                        if (all.isEmpty()) {
+                            sender.sendMessage(Component.text("No cameras. /terminal cctv place",
+                                NamedTextColor.GRAY));
+                        } else {
+                            all.forEach(c -> sender.sendMessage(Component.text(c.name()
+                                + (c.redact() > 0 ? " [L" + c.redact() + "]" : "")
+                                + (c.pan() ? " (panning)" : "")
+                                + " at " + c.anchor().getLocation().getBlockX() + " "
+                                + c.anchor().getLocation().getBlockY() + " "
+                                + c.anchor().getLocation().getBlockZ(), NamedTextColor.AQUA)));
+                        }
+                    }
+                    case "redact" -> {
+                        var camera = cctv.nearest(player, 5);
+                        if (camera == null) return error(sender, "No camera within 5 blocks.");
+                        int level;
+                        try { level = Integer.parseInt(args.length >= 3 ? args[2] : "0"); }
+                        catch (NumberFormatException e) { return error(sender, "Level 0-5."); }
+                        cctv.setRedact(camera, level);
+                        sender.sendMessage(Component.text(camera.name() + " redaction: Level " + level
+                            + (level == 0 ? " (open feed)" : " clearance required"), NamedTextColor.AQUA));
+                    }
+                    case "pan" -> {
+                        var camera = cctv.nearest(player, 5);
+                        if (camera == null) return error(sender, "No camera within 5 blocks.");
+                        cctv.togglePan(camera);
+                        sender.sendMessage(Component.text(camera.name() + " panning toggled.",
+                            NamedTextColor.AQUA));
+                    }
+                    default -> { return error(sender,
+                        "/terminal cctv place | monitor | remove | list | redact <0-5> | pan"); }
+                }
+                return true;
+            }
             case "admin" -> {
                 if (!sender.hasPermission("terminal.admin")) return error(sender, "No permission.");
                 if (!(sender instanceof Player player)) return error(sender, "Players only.");
@@ -85,10 +150,17 @@ public final class TerminalPlugin extends JavaPlugin {
 
     @Override
     public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
-        return args.length == 1
-            ? Stream.of("give", "place", "remove", "admin")
-                .filter(o -> o.startsWith(args[0].toLowerCase())).toList()
-            : List.of();
+        return switch (args.length) {
+            case 1 -> Stream.of("give", "place", "remove", "admin", "cctv")
+                .filter(o -> o.startsWith(args[0].toLowerCase())).toList();
+            case 2 -> args[0].equalsIgnoreCase("cctv")
+                ? Stream.of("place", "monitor", "remove", "list", "redact", "pan")
+                    .filter(o -> o.startsWith(args[1].toLowerCase())).toList()
+                : List.of();
+            case 3 -> args[0].equalsIgnoreCase("cctv") && args[1].equalsIgnoreCase("redact")
+                ? List.of("0", "1", "2", "3", "4", "5") : List.of();
+            default -> List.of();
+        };
     }
 
     public NamespacedKey key(String name) { return new NamespacedKey(this, name); }

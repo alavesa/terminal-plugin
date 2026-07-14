@@ -1,0 +1,6 @@
+{
+  "model": {
+    "type": "minecraft:model",
+    "model": "terminal:entity/cctv_camera"
+  }
+}

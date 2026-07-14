@@ -1,5 +1,5 @@
 name: Terminal
-version: '0.4.1'
+version: '0.5.0'
 main: fi.alavesa.terminal.TerminalPlugin
 api-version: '1.21'
 author: Piia Alavesa
@@ -13,8 +13,12 @@ commands:
       /terminal place           (ops - or any player in creative mode)
       /terminal remove          (ops - removes the nearest terminal)
       /terminal admin           (ops - manage the entry database in-game)
+      /terminal cctv place|monitor|remove|list|redact <0-5>|pan
     aliases: [scipnet]
 permissions:
+  terminal.cctv:
+    description: Place cameras and jack into the CCTV grid
+    default: op
   terminal.admin:
     description: Manage terminals and the entry database
     default: op
