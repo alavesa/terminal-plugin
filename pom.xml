@@ -6,7 +6,7 @@
 
   <groupId>fi.alavesa</groupId>
   <artifactId>terminal-plugin</artifactId>
-  <version>0.6.0</version>
+  <version>0.7.0</version>
   <packaging>jar</packaging>
 
   <name>Terminal</name>
@@ -30,6 +30,13 @@
       <groupId>fi.alavesa</groupId>
       <artifactId>labra-plugin</artifactId>
       <version>0.16.0</version>
+      <scope>provided</scope>
+    </dependency>
+    <dependency>
+      <!-- packet player-NPCs for the CCTV body double -->
+      <groupId>fi.alavesa</groupId>
+      <artifactId>replicas-plugin</artifactId>
+      <version>0.1.0</version>
       <scope>provided</scope>
     </dependency>
     <dependency>

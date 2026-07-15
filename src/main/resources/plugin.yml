@@ -1,10 +1,10 @@
 name: Terminal
-version: '0.6.0'
+version: '0.7.0'
 main: fi.alavesa.terminal.TerminalPlugin
 api-version: '1.21'
 author: Piia Alavesa
 description: SCiPNET terminals - computer blocks, LuckPerms login, clearance-gated entries.
-softdepend: [LuckPerms, Labra]
+softdepend: [LuckPerms, Labra, Replicas]
 commands:
   terminal:
     description: SCiPNET terminal management

@@ -64,7 +64,7 @@ import java.util.UUID;
  */
 public final class CctvViewer implements Listener {
 
-    private record Session(Location back, GameMode mode, UUID body, int index) { }
+    private record Session(Location back, GameMode mode, UUID body, UUID npc, int index) { }
 
     public static final String TAG_BODY = "terminal.cctv.body";
 
@@ -92,6 +92,12 @@ public final class CctvViewer implements Listener {
         event.setCancelled(true);
         Player player = event.getPlayer();
         if (!player.hasPermission("terminal.cctv")) return;
+        openGrid(player);
+    }
+
+    /** The camera grid screen - the same one whether it was summoned from
+     *  the handheld monitor or a SCiPNET terminal. */
+    public void openGrid(Player player) {
         List<CctvManager.Camera> all = cameras.cameras();
         if (all.isEmpty()) {
             player.sendActionBar(line("No cameras on the grid.", NamedTextColor.GRAY));
@@ -150,23 +156,30 @@ public final class CctvViewer implements Listener {
         ItemStack hand = inv.getItemInMainHand();
         inv.clear();
 
+        // with the Replicas plugin up, the visible double is a REAL player
+        // model with the viewer's skin - the stand shrinks to an invisible
+        // hitbox underneath it (all damage/loot logic rides the stand)
+        boolean npcMode = NpcBridge.available();
         ArmorStand body = at.getWorld().spawn(at, ArmorStand.class, stand -> {
             stand.setPersistent(true);
             stand.setArms(true);
             stand.setBasePlate(false);
+            stand.setInvisible(npcMode);
             stand.addScoreboardTag(TAG_BODY);
             stand.getPersistentDataContainer().set(plugin.key("body_owner"),
                 PersistentDataType.STRING, player.getUniqueId().toString());
-            ItemStack head = new ItemStack(Material.PLAYER_HEAD);
-            SkullMeta skull = (SkullMeta) head.getItemMeta();
-            skull.setOwningPlayer(player);
-            head.setItemMeta(skull);
-            stand.getEquipment().setHelmet(head);
-            // the REAL gear, worn where everyone can see what's for taking
-            if (chest != null) stand.getEquipment().setChestplate(chest);
-            if (legs != null) stand.getEquipment().setLeggings(legs);
-            if (boots != null) stand.getEquipment().setBoots(boots);
-            stand.getEquipment().setItemInMainHand(hand);
+            if (!npcMode) {
+                ItemStack head = new ItemStack(Material.PLAYER_HEAD);
+                SkullMeta skull = (SkullMeta) head.getItemMeta();
+                skull.setOwningPlayer(player);
+                head.setItemMeta(skull);
+                stand.getEquipment().setHelmet(head);
+                // the REAL gear, worn where everyone can see what's for taking
+                if (chest != null) stand.getEquipment().setChestplate(chest);
+                if (legs != null) stand.getEquipment().setLeggings(legs);
+                if (boots != null) stand.getEquipment().setBoots(boots);
+                stand.getEquipment().setItemInMainHand(hand);
+            }
             // no pickpocketing the mannequin piece by piece - loot comes
             // from killing it, not clicking it
             for (var slot : org.bukkit.inventory.EquipmentSlot.values()) {
@@ -178,8 +191,13 @@ public final class CctvViewer implements Listener {
         player.getPersistentDataContainer().set(plugin.key("cctv_back"), PersistentDataType.STRING,
             String.format(Locale.ROOT, "%s;%f;%f;%f;%f;%f;%s", at.getWorld().getName(),
                 at.getX(), at.getY(), at.getZ(), at.getYaw(), at.getPitch(), player.getGameMode().name()));
+        UUID npcId = npcMode ? NpcBridge.spawn(player, at, java.util.Map.of(
+            org.bukkit.inventory.EquipmentSlot.CHEST, chest == null ? new ItemStack(Material.AIR) : chest,
+            org.bukkit.inventory.EquipmentSlot.LEGS, legs == null ? new ItemStack(Material.AIR) : legs,
+            org.bukkit.inventory.EquipmentSlot.FEET, boots == null ? new ItemStack(Material.AIR) : boots,
+            org.bukkit.inventory.EquipmentSlot.HAND, hand)) : null;
         sessions.put(player.getUniqueId(),
-            new Session(at.clone(), player.getGameMode(), body.getUniqueId(), index));
+            new Session(at.clone(), player.getGameMode(), body.getUniqueId(), npcId, index));
         player.setGameMode(GameMode.SPECTATOR);
         connect(player, index);
     }
@@ -192,7 +210,8 @@ public final class CctvViewer implements Listener {
         ArmorStand eye = cameras.eyeOf(camera);
         if (eye == null) { jackOut(player, "Signal lost."); return; }
         Session old = sessions.get(player.getUniqueId());
-        sessions.put(player.getUniqueId(), new Session(old.back(), old.mode(), old.body(), index));
+        sessions.put(player.getUniqueId(),
+            new Session(old.back(), old.mode(), old.body(), old.npc(), index));
         player.setSpectatorTarget(null);
         player.teleport(eye.getLocation());
         player.setSpectatorTarget(eye);
@@ -252,6 +271,7 @@ public final class CctvViewer implements Listener {
         Entity body = plugin.getServer().getEntity(session.body());
         Location back = body != null ? body.getLocation() : session.back();
         if (body != null) body.remove();
+        NpcBridge.remove(session.npc());
         player.teleport(back);
         player.setGameMode(session.mode());
         byte[] stored = player.getPersistentDataContainer()
@@ -368,6 +388,7 @@ public final class CctvViewer implements Listener {
         if (session == null) return;
         player.setSpectatorTarget(null);
         Entity body = plugin.getServer().getEntity(session.body());
+        NpcBridge.remove(session.npc());
         Location spill = body != null ? body.getLocation() : session.back();
         byte[] stored = player.getPersistentDataContainer()
             .get(plugin.key("cctv_inv"), PersistentDataType.BYTE_ARRAY);
@@ -407,6 +428,7 @@ public final class CctvViewer implements Listener {
         if (session != null) {
             Entity body = plugin.getServer().getEntity(session.body());
             if (body != null) body.remove();
+            NpcBridge.remove(session.npc());
         }
     }
 

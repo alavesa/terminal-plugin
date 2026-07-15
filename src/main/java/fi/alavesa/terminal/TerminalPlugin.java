@@ -32,11 +32,13 @@ public final class TerminalPlugin extends JavaPlugin {
     public void onEnable() {
         store = new EntryStore(this);
         machines = new TerminalManager(this);
-        ui = new TerminalUi(this, store, machines);
-        getServer().getPluginManager().registerEvents(machines, this);
-        getServer().getPluginManager().registerEvents(ui, this);
+        // the CCTV pair is built first: the terminal UI carries a CCTV GRID
+        // button (and the admin console a camera wing), so it needs both
         cctv = new CctvManager(this);
         viewer = new CctvViewer(this, cctv);
+        ui = new TerminalUi(this, store, machines, cctv, viewer);
+        getServer().getPluginManager().registerEvents(machines, this);
+        getServer().getPluginManager().registerEvents(ui, this);
         getServer().getPluginManager().registerEvents(viewer, this);
         getServer().getScheduler().runTaskTimer(this, cctv::panTick, 40L, 4L);
         getServer().getScheduler().runTaskTimer(this, viewer::feedTick, 40L, 15L);

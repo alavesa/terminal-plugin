@@ -22,8 +22,12 @@ import org.bukkit.persistence.PersistentDataType;
 
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * The cameras. Each one is the house machine trio - Marker anchor (carries
@@ -84,10 +88,7 @@ public final class CctvManager {
                 case WEST -> 90f;
                 default -> 0f;
             };
-        int number = plugin.getConfig().getInt("cctv-next-number", 1);
-        plugin.getConfig().set("cctv-next-number", number + 1);
-        plugin.saveConfig();
-        String name = String.format("CAM-%02d", number);
+        String name = nextName();
 
         Location base = wall.getRelative(facing).getLocation()
             .add(0.5, ceiling ? 0.0 : 0.2, 0.5);
@@ -150,9 +151,23 @@ public final class CctvManager {
             PersistentDataType.STRING, anchor.getUniqueId().toString());
     }
 
-    public boolean removeNearest(Player player) {
-        Camera camera = nearest(player, 5);
-        if (camera == null) return false;
+    private static final Pattern CAM_NAME = Pattern.compile("CAM-(\\d{1,6})");
+
+    /** FIRST-FREE numbering: delete CAM-02 and the next camera IS CAM-02.
+     *  The grid never shows gaps that a growing counter would leave. */
+    private String nextName() {
+        Set<Integer> used = new HashSet<>();
+        for (Camera camera : cameras()) {
+            Matcher m = CAM_NAME.matcher(camera.name());
+            if (m.matches()) used.add(Integer.parseInt(m.group(1)));
+        }
+        int number = 1;
+        while (used.contains(number)) number++;
+        return String.format("CAM-%02d", number);
+    }
+
+    /** Takes down a camera whole: anchor plus every linked part. */
+    public void remove(Camera camera) {
         String id = camera.anchor().getUniqueId().toString();
         for (Entity part : camera.anchor().getLocation().getNearbyEntities(2, 2, 2)) {
             if (id.equals(part.getPersistentDataContainer()
@@ -161,6 +176,12 @@ public final class CctvManager {
             }
         }
         camera.anchor().remove();
+    }
+
+    public boolean removeNearest(Player player) {
+        Camera camera = nearest(player, 5);
+        if (camera == null) return false;
+        remove(camera);
         player.sendMessage(Component.text("Camera " + camera.name() + " removed.", NamedTextColor.AQUA));
         return true;
     }

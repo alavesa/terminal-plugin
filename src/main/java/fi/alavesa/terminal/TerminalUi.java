@@ -79,7 +79,7 @@ public final class TerminalUi implements Listener {
 
     /** Marks our inventories and remembers which screen + page they show. */
     private static final class Screen implements InventoryHolder {
-        final String view; // login | list | admin
+        final String view; // login | list | editor | admin | cctvadmin
         final int page;
         Inventory inventory;
         Screen(String view, int page) { this.view = view; this.page = page; }
@@ -95,6 +95,8 @@ public final class TerminalUi implements Listener {
     private final TerminalPlugin plugin;
     private final EntryStore store;
     private final TerminalManager machines;
+    private final CctvManager cctv;
+    private final CctvViewer cctvViewer;
     private final Map<UUID, Draft> drafts = new HashMap<>();
     /** Open anvil prompt per player: -1 = editing the title, otherwise a line
      *  index (== lines.size() means "append a new line"). */
@@ -102,10 +104,13 @@ public final class TerminalUi implements Listener {
     /** Who is sitting at which terminal - drives the screen's on/off state. */
     private final Map<UUID, UUID> sessions = new HashMap<>();
 
-    public TerminalUi(TerminalPlugin plugin, EntryStore store, TerminalManager machines) {
+    public TerminalUi(TerminalPlugin plugin, EntryStore store, TerminalManager machines,
+                      CctvManager cctv, CctvViewer cctvViewer) {
         this.plugin = plugin;
         this.store = store;
         this.machines = machines;
+        this.cctv = cctv;
+        this.cctvViewer = cctvViewer;
     }
 
     // ------------------------------------------------------------ luckperms
@@ -223,6 +228,11 @@ public final class TerminalUi implements Listener {
         boolean mayWrite = level >= store.writeClearance();
         inv.setItem(45, named(Material.ARROW, Component.text("Previous", NamedTextColor.GRAY),
             List.of(line("Page " + (page + 1) + "/" + pages, NamedTextColor.DARK_GRAY))));
+        if (player.hasPermission("terminal.cctv")) {
+            inv.setItem(47, named(Material.ENDER_EYE, Component.text("CCTV GRID", NamedTextColor.AQUA),
+                List.of(line("Jack into the camera grid.", NamedTextColor.GRAY),
+                        line("Your body stays behind.", NamedTextColor.DARK_GRAY))));
+        }
         inv.setItem(49, mayWrite
             ? named(Material.WRITABLE_BOOK, Component.text("NEW ENTRY", NamedTextColor.GREEN),
                 List.of(line("Click: write here on the terminal.", NamedTextColor.GRAY),
@@ -254,10 +264,50 @@ public final class TerminalUi implements Listener {
         }
         inv.setItem(45, named(Material.ARROW, Component.text("Previous", NamedTextColor.GRAY),
             List.of(line("Page " + (page + 1) + "/" + pages, NamedTextColor.DARK_GRAY))));
+        inv.setItem(46, named(Material.OBSERVER, Component.text("CAMERAS >", NamedTextColor.AQUA),
+            List.of(line("Manage the CCTV grid.", NamedTextColor.GRAY))));
         inv.setItem(49, named(Material.REPEATER,
             Component.text("Write access: Level " + store.writeClearance(), NamedTextColor.AQUA),
             List.of(line("Minimum clearance to file new entries.", NamedTextColor.GRAY),
                     line("Left-click: +1  Right-click: -1", NamedTextColor.GRAY))));
+        inv.setItem(53, named(Material.ARROW, Component.text("Next", NamedTextColor.GRAY),
+            List.of(line("Page " + (page + 1) + "/" + pages, NamedTextColor.DARK_GRAY))));
+        player.openInventory(inv);
+    }
+
+    /** The CCTV wing of the admin console: every camera on the grid, with
+     *  redaction, panning and deletion a click away. */
+    public void openCctvAdmin(Player player, int page) {
+        List<CctvManager.Camera> cams = cctv.cameras();
+        int pages = Math.max(1, (cams.size() + PAGE_SIZE - 1) / PAGE_SIZE);
+        page = Math.max(0, Math.min(page, pages - 1));
+        Screen screen = new Screen("cctvadmin", page);
+        Inventory inv = Bukkit.createInventory(screen, 54, overlay(GLYPH_CHEST54));
+        screen.inventory = inv;
+        for (int i = 0; i < PAGE_SIZE; i++) {
+            int index = page * PAGE_SIZE + i;
+            if (index >= cams.size()) break;
+            CctvManager.Camera camera = cams.get(index);
+            var at = camera.anchor().getLocation();
+            List<Component> lore = new ArrayList<>();
+            lore.add(line("Redaction: Level " + camera.redact(), NamedTextColor.DARK_AQUA));
+            lore.add(line("Panning: " + (camera.pan() ? "on" : "off"), NamedTextColor.DARK_AQUA));
+            lore.add(line(at.getWorld().getName() + " " + at.getBlockX() + " "
+                + at.getBlockY() + " " + at.getBlockZ(), NamedTextColor.GRAY));
+            lore.add(line("Left-click: redact +1 (wraps)  Right-click: pan", NamedTextColor.GRAY));
+            lore.add(line("Shift+Right-click: DELETE", NamedTextColor.RED));
+            ItemStack icon = named(Material.ENDER_EYE,
+                Component.text(camera.name(), NamedTextColor.WHITE), lore);
+            ItemMeta meta = icon.getItemMeta();
+            meta.getPersistentDataContainer().set(plugin.key("cam_id"),
+                PersistentDataType.STRING, camera.anchor().getUniqueId().toString());
+            icon.setItemMeta(meta);
+            inv.setItem(i, icon);
+        }
+        inv.setItem(45, named(Material.ARROW, Component.text("Previous", NamedTextColor.GRAY),
+            List.of(line("Page " + (page + 1) + "/" + pages, NamedTextColor.DARK_GRAY))));
+        inv.setItem(46, named(Material.OBSERVER, Component.text("< ENTRIES", NamedTextColor.AQUA),
+            List.of(line("Back to the entry database.", NamedTextColor.GRAY))));
         inv.setItem(53, named(Material.ARROW, Component.text("Next", NamedTextColor.GRAY),
             List.of(line("Page " + (page + 1) + "/" + pages, NamedTextColor.DARK_GRAY))));
         player.openInventory(inv);
@@ -280,6 +330,11 @@ public final class TerminalUi implements Listener {
             case "list" -> {
                 if (slot == 45) { openList(player, screen.page - 1); return; }
                 if (slot == 53) { openList(player, screen.page + 1); return; }
+                if (slot == 47) {
+                    if (!player.hasPermission("terminal.cctv")) return;
+                    cctvViewer.openGrid(player); // same grid as the handheld monitor
+                    return;
+                }
                 if (slot == 49) {
                     if (clearance(player) < store.writeClearance()) return;
                     // normal click: the terminal's own draft editor, right here.
@@ -326,6 +381,7 @@ public final class TerminalUi implements Listener {
                 if (!player.hasPermission("terminal.admin")) { player.closeInventory(); return; }
                 if (slot == 45) { openAdmin(player, screen.page - 1); return; }
                 if (slot == 53) { openAdmin(player, screen.page + 1); return; }
+                if (slot == 46) { openCctvAdmin(player, 0); return; }
                 if (slot == 49) {
                     store.setWriteClearance(store.writeClearance() + (event.isRightClick() ? -1 : 1));
                     openAdmin(player, screen.page);
@@ -341,7 +397,36 @@ public final class TerminalUi implements Listener {
                 }
                 openAdmin(player, screen.page);
             }
+            case "cctvadmin" -> {
+                if (!player.hasPermission("terminal.admin")) { player.closeInventory(); return; }
+                if (slot == 45) { openCctvAdmin(player, screen.page - 1); return; }
+                if (slot == 53) { openCctvAdmin(player, screen.page + 1); return; }
+                if (slot == 46) { openAdmin(player, 0); return; }
+                CctvManager.Camera camera = clickedCamera(event);
+                if (camera == null) return;
+                if (event.isShiftClick() && event.isRightClick()) {
+                    cctv.remove(camera);
+                    Msg.actionbar(player, line("Camera deleted: " + camera.name(), NamedTextColor.RED));
+                } else if (event.isRightClick()) {
+                    cctv.togglePan(camera);
+                } else {
+                    cctv.setRedact(camera, camera.redact() >= 5 ? 0 : camera.redact() + 1);
+                }
+                openCctvAdmin(player, screen.page);
+            }
         }
+    }
+
+    private CctvManager.Camera clickedCamera(InventoryClickEvent event) {
+        ItemStack item = event.getCurrentItem();
+        if (item == null || !item.hasItemMeta()) return null;
+        String id = item.getItemMeta().getPersistentDataContainer()
+            .get(plugin.key("cam_id"), PersistentDataType.STRING);
+        if (id == null) return null;
+        for (CctvManager.Camera camera : cctv.cameras()) {
+            if (camera.anchor().getUniqueId().toString().equals(id)) return camera;
+        }
+        return null;
     }
 
     private EntryStore.Entry clickedEntry(InventoryClickEvent event) {
