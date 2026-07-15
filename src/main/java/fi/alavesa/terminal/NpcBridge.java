@@ -32,7 +32,11 @@ final class NpcBridge {
     private static java.lang.reflect.Method fnAdapter, fnManager, fnRegister, fnRemoveNpc,
         fnGetNpc, fnCreate, fnSpawnAll, fnRemoveAll, fnSetSkin, fnSetName, fnSetTab, fnSetTurn, fnSetEquip;
     private static java.lang.reflect.Constructor<?> fnDataCtor;
+    private static java.lang.reflect.Method fnGetAll, fnGetData, fnDataName;
     private static Class<?> fnSlotEnum;
+    // handle -> the actual Npc object, so removal never depends on a name
+    // lookup that can miss (the 'copy stayed after leaving' bug)
+    private static final Map<String, Object> live = new java.util.concurrent.ConcurrentHashMap<>();
 
     static {
         boolean fancy = false;
@@ -58,6 +62,9 @@ final class NpcBridge {
                 fnRegister = mgrClass.getMethod("registerNpc", npcClass);
                 fnRemoveNpc = mgrClass.getMethod("removeNpc", npcClass);
                 fnGetNpc = mgrClass.getMethod("getNpc", String.class);
+                fnGetAll = mgrClass.getMethod("getAllNpcs");
+                fnGetData = npcClass.getMethod("getData");
+                fnDataName = dataClass.getMethod("getName");
                 fancy = true;
                 Bukkit.getLogger().info("[Terminal] FancyNpcs found - CCTV doubles are real player models.");
             }
@@ -108,6 +115,7 @@ final class NpcBridge {
                 fnCreate.invoke(npc);
                 fnRegister.invoke(fnManager.invoke(fnPlugin), npc);
                 fnSpawnAll.invoke(npc);
+                live.put(name, npc);
                 return "fn:" + name;
             } catch (Throwable t) {
                 Bukkit.getLogger().warning("[Terminal] FancyNpcs double failed, falling back: " + t);
@@ -124,8 +132,10 @@ final class NpcBridge {
         if (handle == null) return;
         try {
             if (handle.startsWith("fn:") && FANCY) {
+                String name = handle.substring(3);
                 Object manager = fnManager.invoke(fnPlugin);
-                Object npc = fnGetNpc.invoke(manager, handle.substring(3));
+                Object npc = live.remove(name);
+                if (npc == null) npc = fnGetNpc.invoke(manager, name); // fallback lookup
                 if (npc != null) {
                     fnRemoveAll.invoke(npc);
                     fnRemoveNpc.invoke(manager, npc);
@@ -135,6 +145,28 @@ final class NpcBridge {
             }
         } catch (Throwable t) {
             Bukkit.getLogger().warning("[Terminal] NPC double removal failed: " + t);
+        }
+    }
+
+    /** Remove every leftover CCTV double (names start with cctv_) - run at
+     *  startup so a crash mid-session never leaves a permanent copy, and as
+     *  a safety net. Only cctv_ NPCs are touched; real NPCs are untouched. */
+    static void purgeOrphans() {
+        if (!FANCY) return;
+        try {
+            Object manager = fnManager.invoke(fnPlugin);
+            var all = (java.util.Collection<?>) fnGetAll.invoke(manager);
+            for (Object npc : new java.util.ArrayList<>(all)) {
+                Object data = fnGetData.invoke(npc);
+                Object name = data == null ? null : fnDataName.invoke(data);
+                if (name instanceof String s && s.startsWith("cctv_")) {
+                    fnRemoveAll.invoke(npc);
+                    fnRemoveNpc.invoke(manager, npc);
+                    live.remove(s);
+                }
+            }
+        } catch (Throwable t) {
+            Bukkit.getLogger().warning("[Terminal] CCTV orphan purge failed: " + t);
         }
     }
 

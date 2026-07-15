@@ -44,6 +44,7 @@ public final class TerminalPlugin extends JavaPlugin {
         getServer().getScheduler().runTaskTimer(this, viewer::feedTick, 40L, 15L);
         getLogger().info("CCTV body doubles: " + (NpcBridge.available()
             ? "real player models (NPC backend bound)" : "armor-stand fallback (no NPC plugin)"));
+        getServer().getScheduler().runTask(this, NpcBridge::purgeOrphans); // sweep crash leftovers
         getLogger().info("Terminal enabled - LuckPerms "
             + (Bukkit.getPluginManager().getPlugin("LuckPerms") != null
                 ? "found" : "NOT found (everyone reads as Personnel, Level 0)"));

@@ -1,6 +1,5 @@
 package fi.alavesa.terminal;
 
-import net.kyori.adventure.bossbar.BossBar;
 import net.kyori.adventure.key.Key;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
@@ -72,7 +71,6 @@ public final class CctvViewer implements Listener {
     private final TerminalPlugin plugin;
     private final CctvManager cameras;
     private final Map<UUID, Session> sessions = new HashMap<>();
-    private final Map<UUID, BossBar> vitals = new HashMap<>();  // visible in spectator, unlike hearts
     private final Map<UUID, Long> lastHit = new HashMap<>();     // epoch ms of the last blow
     private final Map<UUID, String> lastAttacker = new HashMap<>();
 
@@ -203,10 +201,6 @@ public final class CctvViewer implements Listener {
         sessions.put(player.getUniqueId(),
             new Session(at.clone(), player.getGameMode(), body.getUniqueId(), npcId, index));
         player.setGameMode(GameMode.SPECTATOR);
-        BossBar bar = BossBar.bossBar(Component.text("BODY: SECURE", NamedTextColor.GREEN),
-            1f, BossBar.Color.GREEN, BossBar.Overlay.NOTCHED_10);
-        vitals.put(player.getUniqueId(), bar);
-        player.showBossBar(bar);
         connect(player, index);
     }
 
@@ -245,34 +239,9 @@ public final class CctvViewer implements Listener {
                 ? Component.text("[ FEED REDACTED - LEVEL " + camera.redact() + " ]",
                     NamedTextColor.DARK_RED, TextDecoration.BOLD)
                 : Component.text(camera.name() + " // LIVE", NamedTextColor.GRAY, TextDecoration.ITALIC));
-            updateVitals(player);
             if (player.getSpectatorTarget() == null) {
                 connect(player, session.index()); // re-lock if the client wiggled free
             }
-        }
-    }
-
-    /** The one thing a spectator CAN see: a boss bar. Green while safe, red
-     *  and loud the moment the body is struck, always showing health and the
-     *  way out - so an attack mid-feed is something you can react to. */
-    private void updateVitals(Player player) {
-        BossBar bar = vitals.get(player.getUniqueId());
-        if (bar == null) return;
-        double max = player.getAttribute(org.bukkit.attribute.Attribute.MAX_HEALTH).getValue();
-        double hp = Math.max(0, player.getHealth());
-        bar.progress((float) Math.max(0, Math.min(1, hp / max)));
-        Long hit = lastHit.get(player.getUniqueId());
-        boolean underAttack = hit != null && System.currentTimeMillis() - hit < 6000;
-        if (underAttack) {
-            String who = lastAttacker.getOrDefault(player.getUniqueId(), "someone");
-            bar.color(BossBar.Color.RED);
-            bar.name(Component.text("⚠ UNDER ATTACK by " + who + "  ❤ "
-                + (int) Math.ceil(hp) + "/" + (int) max + "  — SNEAK TO PULL OUT",
-                NamedTextColor.RED));
-        } else {
-            bar.color(hp / max > 0.4 ? BossBar.Color.GREEN : BossBar.Color.YELLOW);
-            bar.name(Component.text("BODY: ❤ " + (int) Math.ceil(hp) + "/" + (int) max
-                + "  (secure)", NamedTextColor.GRAY));
         }
     }
 
@@ -383,7 +352,6 @@ public final class CctvViewer implements Listener {
             Title.Times.times(Duration.ZERO, Duration.ofMillis(600), Duration.ofMillis(200))));
         player.playSound(player.getLocation(), Sound.ENTITY_PLAYER_HURT, 1f, 1f);
         player.playSound(player.getLocation(), Sound.ENTITY_WARDEN_HEARTBEAT, 1f, 1.4f);
-        updateVitals(player);
     }
 
     /** The guaranteed kill: unhook the spectator, stand the player at the
@@ -518,8 +486,6 @@ public final class CctvViewer implements Listener {
     boolean isWiredIn(UUID id) { return sessions.containsKey(id); }
 
     private void clearVitals(Player player) {
-        BossBar bar = vitals.remove(player.getUniqueId());
-        if (bar != null) player.hideBossBar(bar);
         lastHit.remove(player.getUniqueId());
         lastAttacker.remove(player.getUniqueId());
     }
