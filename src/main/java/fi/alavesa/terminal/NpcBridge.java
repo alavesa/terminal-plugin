@@ -30,7 +30,7 @@ final class NpcBridge {
 
     private static Object fnPlugin;
     private static java.lang.reflect.Method fnAdapter, fnManager, fnRegister, fnRemoveNpc,
-        fnGetNpc, fnCreate, fnSpawnAll, fnRemoveAll, fnSetSkin, fnSetTab, fnSetTurn, fnSetEquip;
+        fnGetNpc, fnCreate, fnSpawnAll, fnRemoveAll, fnSetSkin, fnSetName, fnSetTab, fnSetTurn, fnSetEquip;
     private static java.lang.reflect.Constructor<?> fnDataCtor;
     private static Class<?> fnSlotEnum;
 
@@ -45,6 +45,7 @@ final class NpcBridge {
                 Class<?> dataClass = Class.forName("de.oliver.fancynpcs.api.NpcData");
                 fnDataCtor = dataClass.getConstructor(String.class, UUID.class, Location.class);
                 fnSetSkin = dataClass.getMethod("setSkin", String.class);
+                fnSetName = dataClass.getMethod("setDisplayName", String.class);
                 fnSetTab = dataClass.getMethod("setShowInTab", boolean.class);
                 fnSetTurn = dataClass.getMethod("setTurnToPlayer", boolean.class);
                 fnSlotEnum = Class.forName("de.oliver.fancynpcs.api.utils.NpcEquipmentSlot");
@@ -90,7 +91,8 @@ final class NpcBridge {
             try {
                 String name = "cctv_" + source.getName() + "_" + System.nanoTime();
                 Object data = fnDataCtor.newInstance(name, source.getUniqueId(), at);
-                fnSetSkin.invoke(data, source.getName()); // the viewer's own skin
+                fnSetSkin.invoke(data, source.getName());  // the viewer's own skin
+                fnSetName.invoke(data, source.getName());  // ...and their name floats above it
                 fnSetTab.invoke(data, false);
                 fnSetTurn.invoke(data, false);
                 if (gear != null && !gear.isEmpty()) {
