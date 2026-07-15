@@ -18,6 +18,7 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.block.Action;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
+import org.bukkit.event.entity.EntityDamageEvent;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.event.player.PlayerItemHeldEvent;
@@ -306,7 +307,7 @@ public final class CctvViewer implements Listener {
         double damage = Math.max(1.0, event.getDamage());
         stand.getWorld().playSound(stand.getLocation(), Sound.ENTITY_PLAYER_HURT, 0.9f, 1.0f);
         if (player.getHealth() - damage <= 0.5) {
-            player.setHealth(0.0); // onDeath spills the body and cleans up
+            killWiredIn(player, stand.getLocation()); // a real death, guaranteed
             return;
         }
         player.setHealth(player.getHealth() - damage);
@@ -314,6 +315,47 @@ public final class CctvViewer implements Listener {
         player.sendActionBar(Component.text("YOUR BODY IS UNDER ATTACK",
             NamedTextColor.RED, TextDecoration.BOLD));
         player.playSound(player.getLocation(), Sound.ENTITY_WARDEN_HEARTBEAT, 1f, 1.4f);
+    }
+
+    /** The guaranteed kill: unhook the spectator, stand the player at the
+     *  body, THEN zero the health - killing a player mid-spectate could
+     *  silently fail, which was how copies died without their owners. The
+     *  death handler below does the spilling and cleanup. */
+    private void killWiredIn(Player player, org.bukkit.Location at) {
+        player.setSpectatorTarget(null);
+        player.teleport(at);
+        player.setHealth(0.0);
+        if (!player.isDead() && player.getHealth() > 0.5) {
+            // a totem or another plugin argued - take the session down anyway
+            jackOut(player, "Your body is gone.");
+        }
+    }
+
+    /** Environmental harm - explosions, arrows from dispensers, fire - used
+     *  to DESTROY the stand outright: body gone, owner alive, loot deleted.
+     *  Now every kind of damage routes to the owner. */
+    @EventHandler(ignoreCancelled = true)
+    public void onBodyHarm(EntityDamageEvent event) {
+        if (event instanceof EntityDamageByEntityEvent) return; // handled above
+        if (!(event.getEntity() instanceof ArmorStand stand)) return;
+        if (!stand.getScoreboardTags().contains(TAG_BODY)) return;
+        event.setCancelled(true);
+        String owner = stand.getPersistentDataContainer()
+            .get(plugin.key("body_owner"), PersistentDataType.STRING);
+        if (owner == null) { stand.remove(); return; }
+        Player player = plugin.getServer().getPlayer(UUID.fromString(owner));
+        if (player == null || !sessions.containsKey(player.getUniqueId())) {
+            stand.remove();
+            return;
+        }
+        double damage = Math.max(0.5, event.getDamage());
+        if (player.getHealth() - damage <= 0.5) {
+            killWiredIn(player, stand.getLocation());
+            return;
+        }
+        player.setHealth(player.getHealth() - damage);
+        player.sendActionBar(Component.text("YOUR BODY IS UNDER ATTACK",
+            NamedTextColor.RED, TextDecoration.BOLD));
     }
 
     /** Death while wired in - by the body's wounds or anything else: the

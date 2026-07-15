@@ -135,3 +135,7 @@ json.dump({"providers": [
      "ascent": 130, "height": 300, "chars": [""]},
 ]}, open(os.path.join(RP, "font", "cctv.json"), "w"), indent=2, ensure_ascii=False)
 print("feed overlays")
+
+# ---- v0.6.0: the split models (bracket fixed, head rotating, ceiling rig)
+# kept as a manual section marker; the split model json is authored above in
+# the repo (models/entity/cctv_head|cctv_bracket_wall|cctv_bracket_ceiling)

@@ -41,6 +41,7 @@ public final class CctvManager {
     public static final String TAG_ANCHOR = "terminal.cctv.anchor";
     public static final String TAG_PART = "terminal.cctv.part";
     public static final String TAG_EYE = "terminal.cctv.eye";
+    public static final String TAG_HEAD = "terminal.cctv.head";
     private static final float DOWN_TILT = 18f;
 
     /** One camera, resolved live from its anchor. */
@@ -54,34 +55,45 @@ public final class CctvManager {
 
     // ------------------------------------------------------------ placement
 
-    /** Mounts a camera on the wall block face the player is looking at. */
+    /** Mounts a camera on the WALL or CEILING face the player is looking
+     *  at - floors are refused (nobody bolts a camera to the floor). */
     public boolean place(Player player) {
         var ray = player.rayTraceBlocks(6.0);
         if (ray == null || ray.getHitBlock() == null || ray.getHitBlockFace() == null) {
-            error(player, "Look at a wall within 6 blocks.");
+            error(player, "Look at a wall or ceiling within 6 blocks.");
             return false;
         }
         Block wall = ray.getHitBlock();
         BlockFace facing = ray.getHitBlockFace();
-        if (facing == BlockFace.UP || facing == BlockFace.DOWN
-            || Math.abs(facing.getModX()) + Math.abs(facing.getModZ()) != 1) {
-            error(player, "On a WALL - not a floor or ceiling.");
+        if (facing == BlockFace.UP) {
+            error(player, "Walls and ceilings only - not floors.");
             return false;
         }
-        float yaw = switch (facing) { // model faces SOUTH at yaw 0
-            case NORTH -> 180f;
-            case EAST -> -90f;
-            case WEST -> 90f;
-            default -> 0f;
-        };
+        boolean ceiling = facing == BlockFace.DOWN;
+        if (!ceiling && Math.abs(facing.getModX()) + Math.abs(facing.getModZ()) != 1) {
+            error(player, "Walls and ceilings only.");
+            return false;
+        }
+        // ceiling rigs look back toward whoever mounted them; wall rigs
+        // look straight out of the wall
+        float yaw = ceiling
+            ? Math.round(player.getLocation().getYaw() / 90f) * 90f + 180f
+            : switch (facing) { // model faces SOUTH at yaw 0
+                case NORTH -> 180f;
+                case EAST -> -90f;
+                case WEST -> 90f;
+                default -> 0f;
+            };
         int number = plugin.getConfig().getInt("cctv-next-number", 1);
         plugin.getConfig().set("cctv-next-number", number + 1);
         plugin.saveConfig();
         String name = String.format("CAM-%02d", number);
 
-        Location base = wall.getRelative(facing).getLocation().add(0.5, 0.2, 0.5);
+        Location base = wall.getRelative(facing).getLocation()
+            .add(0.5, ceiling ? 0.0 : 0.2, 0.5);
         base.setYaw(yaw);
         base.setPitch(0); // displays inherit pitch - never let them tilt
+        float eyeTilt = ceiling ? 38f : DOWN_TILT;
 
         Marker anchor = base.getWorld().spawn(base, Marker.class, m -> {
             m.setPersistent(true);
@@ -90,22 +102,17 @@ public final class CctvManager {
             m.getPersistentDataContainer().set(plugin.key("cam_redact"), PersistentDataType.INTEGER, 0);
             m.getPersistentDataContainer().set(plugin.key("cam_pan"), PersistentDataType.BYTE, (byte) 0);
             m.getPersistentDataContainer().set(plugin.key("cam_yaw"), PersistentDataType.FLOAT, yaw);
+            m.getPersistentDataContainer().set(plugin.key("cam_tilt"), PersistentDataType.FLOAT, eyeTilt);
         });
-        base.getWorld().spawn(base, ItemDisplay.class, d -> {
-            d.setPersistent(true);
-            d.setBrightness(new Display.Brightness(15, 15)); // the REC light never sleeps
-            ItemStack item = new ItemStack(Material.PAPER);
-            ItemMeta meta = item.getItemMeta();
-            meta.setItemModel(new NamespacedKey("terminal", "cctv_camera"));
-            item.setItemMeta(meta);
-            d.setItemStack(item);
-            d.addScoreboardTag(TAG_PART);
-            link(d, anchor);
-        });
-        // the eye: past the lens, looking out and slightly down
-        Location eyeAt = base.clone().add(base.getDirection().multiply(0.55)).add(0, 0.5, 0);
+        // two parts: the BRACKET stays bolted where it is; the HEAD (and the
+        // eye) are what panning turns
+        spawnPart(anchor, base, ceiling ? "cctv_bracket_ceiling" : "cctv_bracket_wall", false);
+        spawnPart(anchor, ceiling ? base.clone().subtract(0, 0.35, 0) : base, "cctv_head", true);
+        // the eye: past the lens, looking out and tilted down
+        Location eyeAt = base.clone().add(base.getDirection().multiply(0.55))
+            .add(0, ceiling ? 0.15 : 0.5, 0);
         eyeAt.setYaw(yaw);
-        eyeAt.setPitch(DOWN_TILT);
+        eyeAt.setPitch(eyeTilt);
         base.getWorld().spawn(eyeAt, ArmorStand.class, eye -> {
             eye.setPersistent(true);
             eye.setInvisible(true);
@@ -121,6 +128,21 @@ public final class CctvManager {
             + facing.getOppositeFace().name().toLowerCase() + "). /terminal cctv redact <0-5> to classify it.",
             NamedTextColor.AQUA));
         return true;
+    }
+
+    private void spawnPart(Marker anchor, Location at, String model, boolean head) {
+        at.getWorld().spawn(at, ItemDisplay.class, d -> {
+            d.setPersistent(true);
+            d.setBrightness(new Display.Brightness(15, 15)); // the REC light never sleeps
+            ItemStack item = new ItemStack(Material.PAPER);
+            ItemMeta meta = item.getItemMeta();
+            meta.setItemModel(new NamespacedKey("terminal", model));
+            item.setItemMeta(meta);
+            d.setItemStack(item);
+            d.addScoreboardTag(TAG_PART);
+            if (head) d.addScoreboardTag(TAG_HEAD);
+            link(d, anchor);
+        });
     }
 
     private void link(Entity part, Marker anchor) {
@@ -208,14 +230,16 @@ public final class CctvManager {
             Float baseYaw = pdc.get(plugin.key("cam_yaw"), PersistentDataType.FLOAT);
             if (baseYaw == null) continue;
             float yaw = (float) (baseYaw + 35 * Math.sin(panClock / 60.0));
+            float tilt = pdc.getOrDefault(plugin.key("cam_tilt"), PersistentDataType.FLOAT, DOWN_TILT);
             String id = camera.anchor().getUniqueId().toString();
             for (Entity part : camera.anchor().getLocation().getNearbyEntities(2, 2, 2)) {
                 if (!id.equals(part.getPersistentDataContainer()
                         .get(plugin.key("anchor"), PersistentDataType.STRING))) continue;
-                if (part instanceof ItemDisplay display) {
-                    display.setRotation(yaw, 0);
+                if (part instanceof ItemDisplay display
+                    && part.getScoreboardTags().contains(TAG_HEAD)) {
+                    display.setRotation(yaw, 0); // the bracket never moves
                 } else if (part instanceof ArmorStand eye) {
-                    eye.setRotation(yaw, DOWN_TILT);
+                    eye.setRotation(yaw, tilt);
                 }
             }
         }

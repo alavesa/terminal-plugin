@@ -1,0 +1,127 @@
+{
+  "textures": {
+    "particle": "terminal:block/cctv_case",
+    "case": "terminal:block/cctv_case",
+    "dark": "terminal:block/cctv_dark",
+    "lens": "terminal:block/cctv_lens",
+    "rec": "terminal:block/cctv_rec"
+  },
+  "elements": [
+    {
+      "from": [
+        4.5,
+        8.5,
+        2
+      ],
+      "to": [
+        11.5,
+        14.5,
+        11
+      ],
+      "faces": {
+        "north": {
+          "texture": "#case"
+        },
+        "south": {
+          "texture": "#case"
+        },
+        "east": {
+          "texture": "#case"
+        },
+        "west": {
+          "texture": "#case"
+        },
+        "up": {
+          "texture": "#case"
+        },
+        "down": {
+          "texture": "#case"
+        }
+      }
+    },
+    {
+      "from": [
+        5.5,
+        9.5,
+        11
+      ],
+      "to": [
+        10.5,
+        13.5,
+        12.5
+      ],
+      "faces": {
+        "north": {
+          "texture": "#dark"
+        },
+        "south": {
+          "texture": "#lens"
+        },
+        "east": {
+          "texture": "#dark"
+        },
+        "west": {
+          "texture": "#dark"
+        },
+        "up": {
+          "texture": "#dark"
+        },
+        "down": {
+          "texture": "#dark"
+        }
+      }
+    },
+    {
+      "from": [
+        10.2,
+        13.8,
+        3
+      ],
+      "to": [
+        11.4,
+        15,
+        4.2
+      ],
+      "shade": false,
+      "faces": {
+        "north": {
+          "texture": "#rec"
+        },
+        "south": {
+          "texture": "#rec"
+        },
+        "east": {
+          "texture": "#rec"
+        },
+        "west": {
+          "texture": "#rec"
+        },
+        "up": {
+          "texture": "#rec"
+        },
+        "down": {
+          "texture": "#rec"
+        }
+      }
+    }
+  ],
+  "display": {
+    "fixed": {
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "translation": [
+        0,
+        0,
+        0
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ]
+    }
+  }
+}
