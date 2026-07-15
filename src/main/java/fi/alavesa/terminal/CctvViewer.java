@@ -64,7 +64,7 @@ import java.util.UUID;
  */
 public final class CctvViewer implements Listener {
 
-    private record Session(Location back, GameMode mode, UUID body, UUID npc, int index) { }
+    private record Session(Location back, GameMode mode, UUID body, String npc, int index) { }
 
     public static final String TAG_BODY = "terminal.cctv.body";
 
@@ -191,7 +191,7 @@ public final class CctvViewer implements Listener {
         player.getPersistentDataContainer().set(plugin.key("cctv_back"), PersistentDataType.STRING,
             String.format(Locale.ROOT, "%s;%f;%f;%f;%f;%f;%s", at.getWorld().getName(),
                 at.getX(), at.getY(), at.getZ(), at.getYaw(), at.getPitch(), player.getGameMode().name()));
-        UUID npcId = npcMode ? NpcBridge.spawn(player, at, java.util.Map.of(
+        String npcId = npcMode ? NpcBridge.spawn(player, at, java.util.Map.of(
             org.bukkit.inventory.EquipmentSlot.CHEST, chest == null ? new ItemStack(Material.AIR) : chest,
             org.bukkit.inventory.EquipmentSlot.LEGS, legs == null ? new ItemStack(Material.AIR) : legs,
             org.bukkit.inventory.EquipmentSlot.FEET, boots == null ? new ItemStack(Material.AIR) : boots,
