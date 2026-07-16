@@ -1,0 +1,5 @@
+# Custom CCTV sounds - point these at scp: events (see the sound pack) or any
+# vanilla sound. Empty = silent.
+cctv-sounds:
+  connect: minecraft:block.note_block.hat
+  ambient: minecraft:block.beacon.ambient

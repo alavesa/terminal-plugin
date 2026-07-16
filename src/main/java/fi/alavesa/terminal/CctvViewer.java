@@ -217,7 +217,7 @@ public final class CctvViewer implements Listener {
         player.setSpectatorTarget(null);
         player.teleport(eye.getLocation());
         player.setSpectatorTarget(eye);
-        player.playSound(player.getLocation(), Sound.BLOCK_NOTE_BLOCK_HAT, 0.7f, 0.6f);
+        cctvSound(player, "connect", "minecraft:block.note_block.hat", 0.7f, 0.6f);
     }
 
     /** Every 15 ticks (registered by the plugin): overlays + watchdog. */
@@ -239,6 +239,9 @@ public final class CctvViewer implements Listener {
                 ? Component.text("[ FEED REDACTED - LEVEL " + camera.redact() + " ]",
                     NamedTextColor.DARK_RED, TextDecoration.BOLD)
                 : Component.text(camera.name() + " // LIVE", NamedTextColor.GRAY, TextDecoration.ITALIC));
+            if (player.getTicksLived() % 60 < 15) {
+                cctvSound(player, "ambient", "minecraft:block.beacon.ambient", 0.25f, 2.0f);
+            }
             if (player.getSpectatorTarget() == null) {
                 connect(player, session.index()); // re-lock if the client wiggled free
             }
@@ -488,6 +491,14 @@ public final class CctvViewer implements Listener {
     private void clearVitals(Player player) {
         lastHit.remove(player.getUniqueId());
         lastAttacker.remove(player.getUniqueId());
+    }
+
+    /** A camera sound, configurable in config.yml (cctv-sounds.<key>) so it
+     *  can point at a custom scp: event; falls back to a vanilla default. */
+    private void cctvSound(Player player, String key, String def, float vol, float pitch) {
+        String sound = plugin.getConfig().getString("cctv-sounds." + key, def);
+        if (sound == null || sound.isEmpty()) return;
+        player.playSound(player.getLocation(), sound, vol, pitch);
     }
 
     private Component line(String text, NamedTextColor color) {
