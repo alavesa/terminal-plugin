@@ -122,6 +122,13 @@ public final class CctvViewer implements Listener {
             icon.setItemMeta(meta);
             inv.setItem(i, icon);
         }
+        ItemStack back = new ItemStack(Material.BARRIER);
+        var bmeta = back.getItemMeta();
+        bmeta.itemName(Component.text("< DESKTOP", NamedTextColor.GRAY).decoration(TextDecoration.ITALIC, false));
+        bmeta.setItemModel(new org.bukkit.NamespacedKey("terminal", "btn_back"));
+        bmeta.getPersistentDataContainer().set(plugin.key("grid_back"), PersistentDataType.BYTE, (byte) 1);
+        back.setItemMeta(bmeta);
+        inv.setItem(22, back);
         player.openInventory(inv);
         player.playSound(player.getLocation(), Sound.BLOCK_NOTE_BLOCK_BIT, 0.6f, 1.4f);
     }
@@ -133,6 +140,11 @@ public final class CctvViewer implements Listener {
         if (!(event.getWhoClicked() instanceof Player player)) return;
         ItemStack item = event.getCurrentItem();
         if (item == null || !item.hasItemMeta()) return;
+        if (item.getItemMeta().getPersistentDataContainer()
+                .has(plugin.key("grid_back"), PersistentDataType.BYTE)) {
+            plugin.ui().openDesktop(player); // return to the SCiPNET desktop
+            return;
+        }
         Integer index = item.getItemMeta().getPersistentDataContainer()
             .get(plugin.key("cam_index"), PersistentDataType.INTEGER);
         if (index == null) return;
@@ -250,7 +262,8 @@ public final class CctvViewer implements Listener {
     }
 
     private boolean redactedFor(Player player, CctvManager.Camera camera) {
-        if (camera.redact() <= 0 || player.hasPermission("terminal.admin")) return false;
+        if (camera.redact() <= 0 || player.hasPermission("terminal.admin")
+            || TerminalUi.hasSkeletonKey(player)) return false;
         return clearanceOf(player) < camera.redact();
     }
 

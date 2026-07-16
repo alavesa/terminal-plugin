@@ -218,6 +218,8 @@ public final class TerminalPlugin extends JavaPlugin {
         };
     }
 
+    public TerminalUi ui() { return ui; }
+
     public NamespacedKey key(String name) { return new NamespacedKey(this, name); }
 
     private boolean usage(CommandSender sender) {

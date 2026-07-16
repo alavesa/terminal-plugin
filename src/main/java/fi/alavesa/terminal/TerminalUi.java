@@ -140,6 +140,7 @@ public final class TerminalUi implements Listener {
     }
 
     public int clearance(Player player) {
+        if (hasSkeletonKey(player)) return 999; // SCP-005 opens every file
         try {
             User user = LuckPermsProvider.get().getUserManager().getUser(player.getUniqueId());
             if (user != null) {
@@ -148,6 +149,19 @@ public final class TerminalUi implements Listener {
             }
         } catch (IllegalStateException | NoClassDefFoundError | NumberFormatException ignored) { }
         return 0;
+    }
+
+    /** SCP-005, the Skeleton Key: anywhere in the inventory, it reads every
+     *  file regardless of clearance (and, via the other plugins, opens any
+     *  door). Matched by its custom_model_data string. */
+    static boolean hasSkeletonKey(Player player) {
+        for (ItemStack item : player.getInventory().getContents()) {
+            if (item != null && item.hasItemMeta()
+                && item.getItemMeta().getCustomModelDataComponent().getStrings().contains("scp005")) {
+                return true;
+            }
+        }
+        return false;
     }
 
     // ------------------------------------------------------------- screens
@@ -324,6 +338,8 @@ public final class TerminalUi implements Listener {
         boolean mayWrite = level >= store.writeClearance();
         inv.setItem(45, button(Material.ARROW, "btn_prev", Component.text("Previous", NamedTextColor.GRAY),
             List.of(line("Page " + (page + 1) + "/" + pages, NamedTextColor.DARK_GRAY))));
+        inv.setItem(46, button(Material.BARRIER, "btn_back",
+            Component.text("< DESKTOP", NamedTextColor.GRAY), List.of()));
         if (player.hasPermission("terminal.cctv")) {
             inv.setItem(47, button(Material.ENDER_EYE, "btn_cameras",
                 Component.text("CCTV GRID", NamedTextColor.AQUA),
@@ -512,6 +528,7 @@ public final class TerminalUi implements Listener {
             }
             case "list" -> {
                 if (slot == 45) { openList(player, screen.page - 1); return; }
+                if (slot == 46) { openDesktop(player); return; }
                 if (slot == 53) { openList(player, screen.page + 1); return; }
                 if (slot == 47) {
                     if (!player.hasPermission("terminal.cctv")) return;
