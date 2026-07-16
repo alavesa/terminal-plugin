@@ -5,8 +5,9 @@ Two flat item icons rendered on a base PAPER item through the item_model
 component (assets/terminal/items/app_cctv.json / app_records.json - the same
 unshadowable hook the CCTV monitor uses):
 
-    app_cctv    - a green CRT camera glyph  ("CCTV Feeds")
-    app_records - a folder / records glyph  ("Records")
+    app_cctv     - a green CRT camera glyph   ("CCTV Feeds")
+    app_records  - a folder / records glyph   ("Records")
+    app_myfiles  - a personal folder w/ badge ("My Files")
 
 Both are desktop-icon flat textures (item/generated), so they read clearly as
 little program tiles in the desktop GUI.
@@ -84,9 +85,29 @@ rect(rec, 5, 11, 9, 12, INK)
 rect(rec, 2, 12, 14, 14, FOLDER_HI)      # front flap highlight
 png(os.path.join(RP, "textures", "item", "app_records.png"), rec)
 
+# --------------------------------------------------------------- My Files icon
+# a personal folder (bluer manila) with a green "owner" LED badge - reads as
+# the player's OWN private drawer, distinct from the public Records folder
+MY_FOLDER = (120, 168, 176, 255)
+MY_FOLDER_HI = (150, 198, 206, 255)
+MY_FOLDER_EDGE = (66, 104, 110, 255)
+GREEN = (60, 220, 120, 255)
+
+mine = blank()
+rect(mine, 2, 5, 14, 14, MY_FOLDER)      # folder body
+rect(mine, 2, 3, 8, 6, MY_FOLDER)        # tab
+box(mine, 2, 3, 8, 6, MY_FOLDER_EDGE)
+box(mine, 2, 5, 14, 14, MY_FOLDER_EDGE)
+rect(mine, 4, 6, 12, 12, PAPER)          # peeking sheet
+rect(mine, 5, 7, 11, 8, INK)             # text lines
+rect(mine, 5, 9, 9, 10, INK)
+rect(mine, 2, 12, 14, 14, MY_FOLDER_HI)  # front flap highlight
+mine[6][11] = GREEN                      # owner LED badge
+png(os.path.join(RP, "textures", "item", "app_myfiles.png"), mine)
+
 # --------------------------------------------------------------- models + defs
 os.makedirs(os.path.join(RP, "models", "item"), exist_ok=True)
-for name in ("app_cctv", "app_records"):
+for name in ("app_cctv", "app_records", "app_myfiles"):
     json.dump({"parent": "minecraft:item/generated",
                "textures": {"layer0": "terminal:item/" + name}},
               open(os.path.join(RP, "models", "item", name + ".json"), "w"), indent=2)

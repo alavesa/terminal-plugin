@@ -93,6 +93,45 @@ final class NpcBridge {
         REPLICAS = replicas;
     }
 
+    /** Set by CctvViewer: called (attacker, npcName) when a player LEFT-clicks
+     *  a CCTV double NPC - FancyNpcs eats the melee packet, so this reflective
+     *  bridge is how a hit on the visible double reaches the owner. */
+    static java.util.function.BiConsumer<org.bukkit.entity.Player, String> onAttack;
+
+    /** Register the reflective NpcInteractEvent listener (FancyNpcs is a soft
+     *  dep, so the event is bound by name, not compiled against). */
+    static void init(org.bukkit.plugin.Plugin plugin) {
+        if (!FANCY) return;
+        try {
+            Class<?> eventClass = Class.forName("de.oliver.fancynpcs.api.events.NpcInteractEvent");
+            var getInteraction = eventClass.getMethod("getInteractionType");
+            var getNpcM = eventClass.getMethod("getNpc");
+            var getPlayerM = eventClass.getMethod("getPlayer");
+            var npcData = Class.forName("de.oliver.fancynpcs.api.Npc").getMethod("getData");
+            var dataName = Class.forName("de.oliver.fancynpcs.api.NpcData").getMethod("getName");
+            org.bukkit.event.Listener dummy = new org.bukkit.event.Listener() { };
+            org.bukkit.plugin.EventExecutor executor = (listener, event) -> {
+                try {
+                    Object trigger = getInteraction.invoke(event);
+                    if (trigger == null || !trigger.toString().equals("LEFT_CLICK")) return;
+                    Object npc = getNpcM.invoke(event);
+                    Object name = dataName.invoke(npcData.invoke(npc));
+                    if (!(name instanceof String s2) || !s2.startsWith("cctv_")) return;
+                    Object attacker = getPlayerM.invoke(event);
+                    if (onAttack != null && attacker instanceof org.bukkit.entity.Player p) {
+                        onAttack.accept(p, s2);
+                    }
+                } catch (Throwable ignored) { }
+            };
+            org.bukkit.Bukkit.getPluginManager().registerEvent(
+                (Class<? extends org.bukkit.event.Event>) eventClass, dummy,
+                org.bukkit.event.EventPriority.NORMAL, executor, plugin);
+            Bukkit.getLogger().info("[Terminal] CCTV double melee bridge armed (NpcInteractEvent).");
+        } catch (Throwable t) {
+            Bukkit.getLogger().warning("[Terminal] could not bind NpcInteractEvent - double melee won't register: " + t);
+        }
+    }
+
     private NpcBridge() { }
 
     /** True if EITHER backend can give a real player-model double. */

@@ -80,21 +80,28 @@ public final class TerminalUi implements Listener {
 
     /** Marks our inventories and remembers which screen + page they show. */
     private static final class Screen implements InventoryHolder {
-        final String view; // login | list | editor | admin | cctvadmin
+        final String view; // login | desktop | list | myfiles | editor | admin | cctvadmin
         final int page;
         Inventory inventory;
         Screen(String view, int page) { this.view = view; this.page = page; }
         @Override public Inventory getInventory() { return inventory; }
     }
 
-    /** An entry being composed at the terminal (the custom draft editor). */
+    /** Where a saved draft is filed: the public database or a private folder. */
+    private enum Target { PUBLIC, PERSONAL }
+
+    /** An entry being composed at the terminal (the custom draft editor). The
+     *  target routes SAVE to either the public {@link EntryStore} or the
+     *  player's private {@link PersonalStore}. */
     private static final class Draft {
         String title = "Untitled";
+        Target target = Target.PUBLIC;
         final List<String> lines = new ArrayList<>();
     }
 
     private final TerminalPlugin plugin;
     private final EntryStore store;
+    private final PersonalStore personal;
     private final TerminalManager machines;
     private final CctvManager cctv;
     private final CctvViewer cctvViewer;
@@ -105,10 +112,11 @@ public final class TerminalUi implements Listener {
     /** Who is sitting at which terminal - drives the screen's on/off state. */
     private final Map<UUID, UUID> sessions = new HashMap<>();
 
-    public TerminalUi(TerminalPlugin plugin, EntryStore store, TerminalManager machines,
-                      CctvManager cctv, CctvViewer cctvViewer) {
+    public TerminalUi(TerminalPlugin plugin, EntryStore store, PersonalStore personal,
+                      TerminalManager machines, CctvManager cctv, CctvViewer cctvViewer) {
         this.plugin = plugin;
         this.store = store;
+        this.personal = personal;
         this.machines = machines;
         this.cctv = cctv;
         this.cctvViewer = cctvViewer;
@@ -194,14 +202,12 @@ public final class TerminalUi implements Listener {
         // head only appears once they've logged into the desktop (feature 2)
         inv.setItem(11, named(Material.OBSERVER, Component.text("SCiPNET Terminal", NamedTextColor.WHITE),
             List.of(line("Awaiting authentication.", NamedTextColor.GRAY))));
-        inv.setItem(13, named(Material.LIME_CONCRETE,
+        inv.setItem(13, button(Material.LIME_CONCRETE, "btn_login",
             Component.text("LOG IN", NamedTextColor.GREEN).decoration(TextDecoration.BOLD, true),
             List.of(line("Access the entry database.", NamedTextColor.GRAY))));
-        List<Component> lore = new ArrayList<>();
-        lore.add(Component.text("Rank: ", NamedTextColor.GRAY).decoration(TextDecoration.ITALIC, false)
-            .append(rank(player)));
-        lore.add(line("Clearance: Level " + clearance(player), NamedTextColor.WHITE));
-        inv.setItem(15, named(Material.PAPER, Component.text("Credentials", NamedTextColor.AQUA), lore));
+        inv.setItem(15, named(Material.OBSERVER,
+            Component.text("SCiPNET Terminal", NamedTextColor.AQUA),
+            List.of(line("Log in to access the desktop.", NamedTextColor.GRAY))));
         player.openInventory(inv);
         player.playSound(player.getLocation(), Sound.BLOCK_NOTE_BLOCK_BIT, 0.7f, 1.2f);
     }
@@ -213,7 +219,8 @@ public final class TerminalUi implements Listener {
      *  (desktop-apps.<id>.slot) so a rearrange by anyone sticks server-wide. */
     private enum App {
         CCTV("cctv", "app_cctv", "CCTV Feeds", "Live camera grid.", 0),
-        RECORDS("records", "app_records", "Records", "The entry database.", 9);
+        RECORDS("records", "app_records", "Records", "The entry database.", 9),
+        MYFILES("myfiles", "app_myfiles", "My Files", "Your personal folder.", 18);
         final String id, model, title, blurb;
         final int defaultSlot;
         App(String id, String model, String title, String blurb, int defaultSlot) {
@@ -315,22 +322,61 @@ public final class TerminalUi implements Listener {
             }
         }
         boolean mayWrite = level >= store.writeClearance();
-        inv.setItem(45, named(Material.ARROW, Component.text("Previous", NamedTextColor.GRAY),
+        inv.setItem(45, button(Material.ARROW, "btn_prev", Component.text("Previous", NamedTextColor.GRAY),
             List.of(line("Page " + (page + 1) + "/" + pages, NamedTextColor.DARK_GRAY))));
         if (player.hasPermission("terminal.cctv")) {
-            inv.setItem(47, named(Material.ENDER_EYE, Component.text("CCTV GRID", NamedTextColor.AQUA),
+            inv.setItem(47, button(Material.ENDER_EYE, "btn_cameras",
+                Component.text("CCTV GRID", NamedTextColor.AQUA),
                 List.of(line("Jack into the camera grid.", NamedTextColor.GRAY),
                         line("Your body stays behind.", NamedTextColor.DARK_GRAY))));
         }
         inv.setItem(49, mayWrite
-            ? named(Material.WRITABLE_BOOK, Component.text("NEW ENTRY", NamedTextColor.GREEN),
+            ? button(Material.WRITABLE_BOOK, "btn_new", Component.text("NEW ENTRY", NamedTextColor.GREEN),
                 List.of(line("Click: write here on the terminal.", NamedTextColor.GRAY),
                         line("Shift-click: take a physical draft book", NamedTextColor.GRAY),
                         line("to write anywhere and file by signing.", NamedTextColor.GRAY)))
             : named(Material.GRAY_DYE, Component.text("WRITE ACCESS DENIED", NamedTextColor.DARK_GRAY),
                 List.of(line("Level " + store.writeClearance() + " clearance required to write.",
                     NamedTextColor.DARK_RED))));
-        inv.setItem(53, named(Material.ARROW, Component.text("Next", NamedTextColor.GRAY),
+        inv.setItem(53, button(Material.ARROW, "btn_next", Component.text("Next", NamedTextColor.GRAY),
+            List.of(line("Page " + (page + 1) + "/" + pages, NamedTextColor.DARK_GRAY))));
+        player.openInventory(inv);
+    }
+
+    // -------------------------------------------------------- personal folders
+
+    /**
+     * MY FILES: the player's OWN private folder. Personal documents are drafts
+     * kept apart from the public database until released. Click a doc to READ
+     * it (redactions render as usual); shift-right-click RELEASES it into the
+     * public Records list. NEW PERSONAL DOC opens the same terminal draft
+     * editor, but SAVE files into the personal store instead of the public one.
+     */
+    public void openMyFiles(Player player, int page) {
+        List<EntryStore.Entry> docs = personal.list(player.getUniqueId());
+        int pages = Math.max(1, (docs.size() + PAGE_SIZE - 1) / PAGE_SIZE);
+        page = Math.max(0, Math.min(page, pages - 1));
+        Screen screen = new Screen("myfiles", page);
+        Inventory inv = Bukkit.createInventory(screen, 54, overlay(GLYPH_CHEST54));
+        screen.inventory = inv;
+        for (int i = 0; i < PAGE_SIZE; i++) {
+            int index = page * PAGE_SIZE + i;
+            if (index >= docs.size()) break;
+            EntryStore.Entry doc = docs.get(index);
+            inv.setItem(i, personalIcon(doc,
+                Component.text(doc.title(), NamedTextColor.WHITE),
+                line("Click: read.", NamedTextColor.DARK_GRAY),
+                line("Shift+Right-click: RELEASE to public database.", NamedTextColor.GREEN)));
+        }
+        inv.setItem(45, button(Material.ARROW, "btn_prev", Component.text("Previous", NamedTextColor.GRAY),
+            List.of(line("Page " + (page + 1) + "/" + pages, NamedTextColor.DARK_GRAY))));
+        inv.setItem(46, button(Material.BARRIER, "btn_back", Component.text("< DESKTOP", NamedTextColor.AQUA),
+            List.of(line("Back to the desktop.", NamedTextColor.GRAY))));
+        inv.setItem(49, button(Material.WRITABLE_BOOK, "btn_new",
+            Component.text("NEW PERSONAL DOC", NamedTextColor.GREEN),
+            List.of(line("Write a private document here on the terminal.", NamedTextColor.GRAY),
+                    line("Saved to your folder; RELEASE later to go public.", NamedTextColor.DARK_GRAY))));
+        inv.setItem(53, button(Material.ARROW, "btn_next", Component.text("Next", NamedTextColor.GRAY),
             List.of(line("Page " + (page + 1) + "/" + pages, NamedTextColor.DARK_GRAY))));
         player.openInventory(inv);
     }
@@ -351,15 +397,15 @@ public final class TerminalUi implements Listener {
                 line("Left-click: clearance +1  Right-click: -1", NamedTextColor.GRAY),
                 line("Shift+Right-click: EXPUNGE", NamedTextColor.RED)));
         }
-        inv.setItem(45, named(Material.ARROW, Component.text("Previous", NamedTextColor.GRAY),
+        inv.setItem(45, button(Material.ARROW, "btn_prev", Component.text("Previous", NamedTextColor.GRAY),
             List.of(line("Page " + (page + 1) + "/" + pages, NamedTextColor.DARK_GRAY))));
-        inv.setItem(46, named(Material.OBSERVER, Component.text("CAMERAS >", NamedTextColor.AQUA),
+        inv.setItem(46, button(Material.OBSERVER, "btn_cameras", Component.text("CAMERAS >", NamedTextColor.AQUA),
             List.of(line("Manage the CCTV grid.", NamedTextColor.GRAY))));
         inv.setItem(49, named(Material.REPEATER,
             Component.text("Write access: Level " + store.writeClearance(), NamedTextColor.AQUA),
             List.of(line("Minimum clearance to file new entries.", NamedTextColor.GRAY),
                     line("Left-click: +1  Right-click: -1", NamedTextColor.GRAY))));
-        inv.setItem(53, named(Material.ARROW, Component.text("Next", NamedTextColor.GRAY),
+        inv.setItem(53, button(Material.ARROW, "btn_next", Component.text("Next", NamedTextColor.GRAY),
             List.of(line("Page " + (page + 1) + "/" + pages, NamedTextColor.DARK_GRAY))));
         player.openInventory(inv);
     }
@@ -393,11 +439,11 @@ public final class TerminalUi implements Listener {
             icon.setItemMeta(meta);
             inv.setItem(i, icon);
         }
-        inv.setItem(45, named(Material.ARROW, Component.text("Previous", NamedTextColor.GRAY),
+        inv.setItem(45, button(Material.ARROW, "btn_prev", Component.text("Previous", NamedTextColor.GRAY),
             List.of(line("Page " + (page + 1) + "/" + pages, NamedTextColor.DARK_GRAY))));
-        inv.setItem(46, named(Material.OBSERVER, Component.text("< ENTRIES", NamedTextColor.AQUA),
+        inv.setItem(46, button(Material.OBSERVER, "btn_back", Component.text("< ENTRIES", NamedTextColor.AQUA),
             List.of(line("Back to the entry database.", NamedTextColor.GRAY))));
-        inv.setItem(53, named(Material.ARROW, Component.text("Next", NamedTextColor.GRAY),
+        inv.setItem(53, button(Material.ARROW, "btn_next", Component.text("Next", NamedTextColor.GRAY),
             List.of(line("Page " + (page + 1) + "/" + pages, NamedTextColor.DARK_GRAY))));
         player.openInventory(inv);
     }
@@ -446,15 +492,17 @@ public final class TerminalUi implements Listener {
                     return;
                 }
                 if (event.getClick() == org.bukkit.event.inventory.ClickType.DOUBLE_CLICK) {
-                    if (app == App.CCTV) {
-                        if (!player.hasPermission("terminal.cctv")) {
-                            Msg.actionbar(player, line("No clearance for the camera grid.",
-                                NamedTextColor.RED));
-                            return;
+                    switch (app) {
+                        case CCTV -> {
+                            if (!player.hasPermission("terminal.cctv")) {
+                                Msg.actionbar(player, line("No clearance for the camera grid.",
+                                    NamedTextColor.RED));
+                                return;
+                            }
+                            cctvViewer.openGrid(player);
                         }
-                        cctvViewer.openGrid(player);
-                    } else {
-                        openList(player, 0);
+                        case MYFILES -> openMyFiles(player, 0);
+                        default -> openList(player, 0);
                     }
                     return;
                 }
@@ -476,7 +524,7 @@ public final class TerminalUi implements Listener {
                     // shift-click: a physical draft book for writing on the go
                     // (signed anywhere, it files through the normal book GUI).
                     if (event.isShiftClick()) startDraft(player);
-                    else openEditor(player);
+                    else openEditor(player, Target.PUBLIC);
                     return;
                 }
                 EntryStore.Entry entry = clickedEntry(event);
@@ -488,13 +536,32 @@ public final class TerminalUi implements Listener {
                 }
                 openBook(player, entry);
             }
+            case "myfiles" -> {
+                if (slot == 45) { openMyFiles(player, screen.page - 1); return; }
+                if (slot == 53) { openMyFiles(player, screen.page + 1); return; }
+                if (slot == 46) { openDesktop(player); return; }
+                if (slot == 49) { openEditor(player, Target.PERSONAL); return; }
+                EntryStore.Entry doc = clickedPersonal(player, event);
+                if (doc == null) return;
+                if (event.isShiftClick() && event.isRightClick()) {
+                    EntryStore.Entry filed = personal.release(player.getUniqueId(), doc.id());
+                    if (filed != null) {
+                        Msg.actionbar(player, line("Filed to the public database.", NamedTextColor.GRAY));
+                        player.playSound(player.getLocation(), Sound.BLOCK_NOTE_BLOCK_BIT, 0.8f, 1.6f);
+                    }
+                    openMyFiles(player, screen.page);
+                    return;
+                }
+                openBook(player, doc); // read it, redactions render as usual
+            }
             case "editor" -> {
                 Draft draft = drafts.computeIfAbsent(player.getUniqueId(), k -> new Draft());
                 if (slot == 4) { openPrompt(player, -1); return; }
                 if (slot == 45) {
+                    Target t = draft.target;
                     drafts.remove(player.getUniqueId());
                     Msg.actionbar(player, line("Draft discarded.", NamedTextColor.GRAY));
-                    openList(player, 0);
+                    if (t == Target.PERSONAL) openMyFiles(player, 0); else openList(player, 0);
                     return;
                 }
                 if (slot == 49) { saveDraft(player, draft); return; }
@@ -624,6 +691,14 @@ public final class TerminalUi implements Listener {
      * the normal vanilla book GUI instead - this editor is only for writing
      * at the terminal itself.
      */
+    /** Open the editor for a fresh draft aimed at a specific target (public
+     *  database vs. the player's personal folder). */
+    public void openEditor(Player player, Target target) {
+        Draft draft = drafts.computeIfAbsent(player.getUniqueId(), k -> new Draft());
+        draft.target = target;
+        openEditor(player);
+    }
+
     public void openEditor(Player player) {
         Draft draft = drafts.computeIfAbsent(player.getUniqueId(), k -> new Draft());
         Screen screen = new Screen("editor", 0);
@@ -643,11 +718,17 @@ public final class TerminalUi implements Listener {
             inv.setItem(9 + draft.lines.size(), named(Material.LIME_DYE,
                 Component.text("ADD LINE", NamedTextColor.GREEN), List.of()));
         }
-        inv.setItem(45, named(Material.RED_CONCRETE,
+        inv.setItem(45, button(Material.RED_CONCRETE, "btn_back",
             Component.text("DISCARD", NamedTextColor.RED), List.of()));
-        inv.setItem(49, named(Material.LIME_CONCRETE,
-            Component.text("SAVE ENTRY", NamedTextColor.GREEN).decoration(TextDecoration.BOLD, true),
-            List.of(line("Filed at Level " + clearance(player) + ".", NamedTextColor.GRAY))));
+        boolean personalDraft = draft.target == Target.PERSONAL;
+        inv.setItem(49, button(Material.LIME_CONCRETE, "btn_new",
+            Component.text(personalDraft ? "SAVE TO MY FILES" : "SAVE ENTRY", NamedTextColor.GREEN)
+                .decoration(TextDecoration.BOLD, true),
+            List.of(line(personalDraft
+                    ? "Saved privately at Level " + clearance(player) + "."
+                    : "Filed at Level " + clearance(player) + ".", NamedTextColor.GRAY),
+                line(personalDraft ? "RELEASE later to go public." : "Public database.",
+                    NamedTextColor.DARK_GRAY))));
         inv.setItem(53, named(Material.BOOK, Component.text("Redactions", NamedTextColor.AQUA),
             List.of(line("[[text]] - your eyes only", NamedTextColor.GRAY),
                     line("[[3:text]] - Level 3 and up", NamedTextColor.GRAY),
@@ -742,12 +823,15 @@ public final class TerminalUi implements Listener {
             linesOnPage++;
         }
         if (page.length() > 0) pages.add(page.toString());
-        EntryStore.Entry entry = store.add(draft.title, player.getName(), clearance(player), pages);
+        Target target = draft.target;
+        EntryStore.Entry entry = target == Target.PERSONAL
+            ? personal.add(player.getUniqueId(), draft.title, player.getName(), clearance(player), pages)
+            : store.add(draft.title, player.getName(), clearance(player), pages);
         drafts.remove(player.getUniqueId());
-        Msg.actionbar(player, line("Entry filed: " + entry.title()
-            + " (Level " + entry.clearance() + ")", NamedTextColor.GRAY));
+        Msg.actionbar(player, line((target == Target.PERSONAL ? "Saved to My Files: " : "Entry filed: ")
+            + entry.title() + " (Level " + entry.clearance() + ")", NamedTextColor.GRAY));
         player.playSound(player.getLocation(), Sound.BLOCK_NOTE_BLOCK_BIT, 0.8f, 1.6f);
-        openList(player, 0);
+        if (target == Target.PERSONAL) openMyFiles(player, 0); else openList(player, 0);
     }
 
     @EventHandler
@@ -814,11 +898,37 @@ public final class TerminalUi implements Listener {
             NamedTextColor.GRAY));
         lore.add(line("Level " + entry.clearance(), NamedTextColor.DARK_AQUA));
         lore.addAll(List.of(extraLore));
-        ItemStack icon = named(material, name, lore);
+        // readable records get the custom doc texture; ACCESS DENIED barriers
+        // stay vanilla so the deny state reads unmistakably
+        ItemStack icon = material == Material.PAPER
+            ? button(material, "doc", name, lore) : named(material, name, lore);
         ItemMeta meta = icon.getItemMeta();
         meta.getPersistentDataContainer().set(plugin.key("entry"), PersistentDataType.INTEGER, entry.id());
         icon.setItemMeta(meta);
         return icon;
+    }
+
+    /** A personal-document icon: like {@link #entryIcon} but tagged with the
+     *  "personal" PDC key and textured with the custom doc model. */
+    private ItemStack personalIcon(EntryStore.Entry doc, Component name, Component... extraLore) {
+        List<Component> lore = new ArrayList<>();
+        lore.add(line("by " + doc.author() + ", " + DATE.format(new Date(doc.created())),
+            NamedTextColor.GRAY));
+        lore.add(line("Level " + doc.clearance(), NamedTextColor.DARK_AQUA));
+        lore.addAll(List.of(extraLore));
+        ItemStack icon = button(Material.PAPER, "doc", name, lore);
+        ItemMeta meta = icon.getItemMeta();
+        meta.getPersistentDataContainer().set(plugin.key("personal"), PersistentDataType.INTEGER, doc.id());
+        icon.setItemMeta(meta);
+        return icon;
+    }
+
+    private EntryStore.Entry clickedPersonal(Player player, InventoryClickEvent event) {
+        ItemStack item = event.getCurrentItem();
+        if (item == null || !item.hasItemMeta()) return null;
+        Integer id = item.getItemMeta().getPersistentDataContainer()
+            .get(plugin.key("personal"), PersistentDataType.INTEGER);
+        return id == null ? null : personal.get(player.getUniqueId(), id);
     }
 
     private ItemStack named(Material material, Component name, List<Component> lore) {
@@ -826,6 +936,21 @@ public final class TerminalUi implements Listener {
         ItemMeta meta = item.getItemMeta();
         meta.itemName(name.decoration(TextDecoration.ITALIC, false));
         if (!lore.isEmpty()) meta.lore(lore);
+        item.setItemMeta(meta);
+        return item;
+    }
+
+    /**
+     * A named GUI item that ALSO carries a custom terminal item_model, so the
+     * button/folder/doc renders as bespoke SCiPNET art (feature 2). If the
+     * resource pack is absent the item simply falls back to its base material,
+     * so everything still works unpacked. modelId maps to terminal:&lt;modelId&gt;
+     * (see tools/gen_buttons.py for the texture set).
+     */
+    private ItemStack button(Material base, String modelId, Component name, List<Component> lore) {
+        ItemStack item = named(base, name, lore);
+        ItemMeta meta = item.getItemMeta();
+        meta.setItemModel(new org.bukkit.NamespacedKey("terminal", modelId));
         item.setItemMeta(meta);
         return item;
     }

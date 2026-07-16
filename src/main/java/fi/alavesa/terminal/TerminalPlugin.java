@@ -23,6 +23,7 @@ import java.util.stream.Stream;
 public final class TerminalPlugin extends JavaPlugin {
 
     private EntryStore store;
+    private PersonalStore personal;
     private TerminalManager machines;
     private TerminalUi ui;
     private CctvManager cctv;
@@ -32,17 +33,19 @@ public final class TerminalPlugin extends JavaPlugin {
     public void onEnable() {
         saveDefaultConfig(); // ships cctv-sounds + desktop-apps defaults
         store = new EntryStore(this);
+        personal = new PersonalStore(this, store); // private folders, released into store later
         machines = new TerminalManager(this);
         // the CCTV pair is built first: the terminal UI carries a CCTV GRID
         // button (and the admin console a camera wing), so it needs both
         cctv = new CctvManager(this);
         viewer = new CctvViewer(this, cctv);
-        ui = new TerminalUi(this, store, machines, cctv, viewer);
+        ui = new TerminalUi(this, store, personal, machines, cctv, viewer);
         getServer().getPluginManager().registerEvents(machines, this);
         getServer().getPluginManager().registerEvents(ui, this);
         getServer().getPluginManager().registerEvents(viewer, this);
         getServer().getScheduler().runTaskTimer(this, cctv::panTick, 40L, 4L);
         getServer().getScheduler().runTaskTimer(this, viewer::feedTick, 40L, 15L);
+        NpcBridge.init(this);
         getLogger().info("CCTV body doubles: " + (NpcBridge.available()
             ? "real player models (NPC backend bound)" : "armor-stand fallback (no NPC plugin)"));
         getServer().getScheduler().runTask(this, NpcBridge::purgeOrphans); // sweep crash leftovers

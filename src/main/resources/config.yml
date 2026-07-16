@@ -12,3 +12,5 @@ desktop-apps:
     slot: 0
   records:
     slot: 9
+  myfiles:
+    slot: 18

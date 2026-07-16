@@ -82,6 +82,7 @@ public final class CctvViewer implements Listener {
     public CctvViewer(TerminalPlugin plugin, CctvManager cameras) {
         this.plugin = plugin;
         this.cameras = cameras;
+        NpcBridge.onAttack = this::onDoubleAttacked;
     }
 
     // ------------------------------------------------------------ the list
@@ -293,11 +294,39 @@ public final class CctvViewer implements Listener {
         player.playSound(player.getLocation(), Sound.BLOCK_LEVER_CLICK, 0.7f, 0.5f);
     }
 
+    /** A player left-clicked someone's CCTV double (FancyNpcs melee). Route
+     *  the attacker's weapon damage to the distant owner. */
+    public void onDoubleAttacked(Player attacker, String npcName) {
+        String handle = "fn:" + npcName;
+        for (var entry : sessions.entrySet()) {
+            if (!handle.equals(entry.getValue().npc())) continue;
+            Player owner = plugin.getServer().getPlayer(entry.getKey());
+            if (owner == null) return;
+            double dmg = 1.0;
+            var attr = attacker.getAttribute(org.bukkit.attribute.Attribute.ATTACK_DAMAGE);
+            if (attr != null) dmg = Math.max(1.0, attr.getValue());
+            Entity body = plugin.getServer().getEntity(entry.getValue().body());
+            Location at = body != null ? body.getLocation() : owner.getLocation();
+            if (owner.getHealth() - dmg <= 0.5) {
+                killWiredIn(owner, at);
+            } else {
+                owner.setHealth(owner.getHealth() - dmg);
+                struck(owner, attacker.getName());
+            }
+            return;
+        }
+    }
+
     /** Sneak = unplug. */
     @EventHandler
     public void onSneak(PlayerToggleSneakEvent event) {
-        if (event.isSneaking() && sessions.containsKey(event.getPlayer().getUniqueId())) {
-            jackOut(event.getPlayer(), "Disconnected.");
+        Player player = event.getPlayer();
+        if (event.isSneaking() && sessions.containsKey(player.getUniqueId())) {
+            jackOut(player, "Disconnected.");
+            // land back in the camera grid instead of being dumped to the world
+            plugin.getServer().getScheduler().runTask(plugin, () -> {
+                if (player.isOnline() && !player.isDead()) openGrid(player);
+            });
         }
     }
 
