@@ -30,7 +30,10 @@ final class NpcBridge {
 
     private static Object fnPlugin;
     private static java.lang.reflect.Method fnAdapter, fnManager, fnRegister, fnRemoveNpc,
-        fnGetNpc, fnCreate, fnSpawnAll, fnRemoveAll, fnSetSkin, fnSetName, fnSetTab, fnSetTurn, fnSetEquip;
+        fnGetNpc, fnCreate, fnSpawnAll, fnRemoveAll, fnSetSkin, fnSetName, fnSetTab, fnSetTurn,
+        fnSetEquip, fnSetSkinData;
+    private static java.lang.reflect.Constructor<?> fnSkinCtor;
+    private static Object fnSkinAuto;
     private static java.lang.reflect.Constructor<?> fnDataCtor;
     private static java.lang.reflect.Method fnGetAll, fnGetData, fnDataName;
     private static Class<?> fnSlotEnum;
@@ -50,6 +53,11 @@ final class NpcBridge {
                 fnDataCtor = dataClass.getConstructor(String.class, UUID.class, Location.class);
                 fnSetSkin = dataClass.getMethod("setSkin", String.class);
                 fnSetName = dataClass.getMethod("setDisplayName", String.class);
+                Class<?> skinClass = Class.forName("de.oliver.fancynpcs.api.skins.SkinData");
+                Class<?> variantClass = Class.forName("de.oliver.fancynpcs.api.skins.SkinData$SkinVariant");
+                fnSkinCtor = skinClass.getConstructor(String.class, variantClass, String.class, String.class);
+                fnSkinAuto = Enum.valueOf((Class<Enum>) variantClass, "AUTO");
+                fnSetSkinData = dataClass.getMethod("setSkinData", skinClass);
                 fnSetTab = dataClass.getMethod("setShowInTab", boolean.class);
                 fnSetTurn = dataClass.getMethod("setTurnToPlayer", boolean.class);
                 fnSlotEnum = Class.forName("de.oliver.fancynpcs.api.utils.NpcEquipmentSlot");
@@ -98,8 +106,16 @@ final class NpcBridge {
             try {
                 String name = "cctv_" + source.getName() + "_" + System.nanoTime();
                 Object data = fnDataCtor.newInstance(name, source.getUniqueId(), at);
-                fnSetSkin.invoke(data, source.getName());  // the viewer's own skin
-                fnSetName.invoke(data, source.getName());  // ...and their name floats above it
+                // read the CURRENT profile textures - this reflects a live
+                // SCP-914 disguise, not just the account's real skin
+                String[] tex = currentSkin(source);
+                if (tex != null) {
+                    Object skin = fnSkinCtor.newInstance(source.getName(), fnSkinAuto, tex[0], tex[1]);
+                    fnSetSkinData.invoke(data, skin);
+                } else {
+                    fnSetSkin.invoke(data, source.getName()); // no textures - by name
+                }
+                fnSetName.invoke(data, source.getName());  // their name floats above it
                 fnSetTab.invoke(data, false);
                 fnSetTurn.invoke(data, false);
                 if (gear != null && !gear.isEmpty()) {
@@ -168,6 +184,18 @@ final class NpcBridge {
         } catch (Throwable t) {
             Bukkit.getLogger().warning("[Terminal] CCTV orphan purge failed: " + t);
         }
+    }
+
+    /** value+signature of the player's current skin, or null if the profile
+     *  has no textures property (default Steve/Alex). Picks up 914 disguises,
+     *  which set the profile textures. */
+    private static String[] currentSkin(Player player) {
+        for (var prop : player.getPlayerProfile().getProperties()) {
+            if (prop.getName().equals("textures")) {
+                return new String[]{prop.getValue(), prop.getSignature()};
+            }
+        }
+        return null;
     }
 
     @SuppressWarnings("unchecked")
