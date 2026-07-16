@@ -30,6 +30,7 @@ public final class TerminalPlugin extends JavaPlugin {
 
     @Override
     public void onEnable() {
+        saveDefaultConfig(); // ships cctv-sounds + desktop-apps defaults
         store = new EntryStore(this);
         machines = new TerminalManager(this);
         // the CCTV pair is built first: the terminal UI carries a CCTV GRID
@@ -138,8 +139,41 @@ public final class TerminalPlugin extends JavaPlugin {
                         sender.sendMessage(Component.text(camera.name() + " panning toggled.",
                             NamedTextColor.AQUA));
                     }
+                    case "offset" -> {
+                        var camera = cctv.nearest(player, 5);
+                        if (camera == null) return error(sender, "No camera within 5 blocks.");
+                        if (args.length < 6 || !CctvManager.PARTS.contains(args[2].toLowerCase())) {
+                            return error(sender, "/terminal cctv offset <bracket|head|eye> <dx> <dy> <dz>");
+                        }
+                        String part = args[2].toLowerCase();
+                        float dx, dy, dz;
+                        try {
+                            dx = Float.parseFloat(args[3]);
+                            dy = Float.parseFloat(args[4]);
+                            dz = Float.parseFloat(args[5]);
+                        } catch (NumberFormatException e) { return error(sender, "dx dy dz must be numbers."); }
+                        cctv.nudgeOffset(camera, part, dx, dy, dz);
+                        var off = cctv.offset(camera, part);
+                        sender.sendMessage(Component.text(camera.name() + " " + part + " offset now "
+                            + off.x + "," + off.y + "," + off.z, NamedTextColor.AQUA));
+                    }
+                    case "scale" -> {
+                        var camera = cctv.nearest(player, 5);
+                        if (camera == null) return error(sender, "No camera within 5 blocks.");
+                        if (args.length < 4 || !(args[2].equalsIgnoreCase("bracket")
+                                || args[2].equalsIgnoreCase("head"))) {
+                            return error(sender, "/terminal cctv scale <bracket|head> <factor>");
+                        }
+                        float factor;
+                        try { factor = Float.parseFloat(args[3]); }
+                        catch (NumberFormatException e) { return error(sender, "factor must be a number."); }
+                        cctv.setScale(camera, args[2].toLowerCase(), factor);
+                        sender.sendMessage(Component.text(camera.name() + " " + args[2].toLowerCase()
+                            + " scale set to " + factor, NamedTextColor.AQUA));
+                    }
                     default -> { return error(sender,
-                        "/terminal cctv place | monitor | remove | list | redact <0-5> | pan"); }
+                        "/terminal cctv place | monitor | remove | list | redact <0-5> | pan | "
+                        + "offset <part> <dx> <dy> <dz> | scale <bracket|head> <factor>"); }
                 }
                 return true;
             }
@@ -159,11 +193,24 @@ public final class TerminalPlugin extends JavaPlugin {
             case 1 -> Stream.of("give", "place", "remove", "admin", "cctv")
                 .filter(o -> o.startsWith(args[0].toLowerCase())).toList();
             case 2 -> args[0].equalsIgnoreCase("cctv")
-                ? Stream.of("place", "monitor", "remove", "list", "redact", "pan")
+                ? Stream.of("place", "monitor", "remove", "list", "redact", "pan", "offset", "scale")
                     .filter(o -> o.startsWith(args[1].toLowerCase())).toList()
                 : List.of();
-            case 3 -> args[0].equalsIgnoreCase("cctv") && args[1].equalsIgnoreCase("redact")
-                ? List.of("0", "1", "2", "3", "4", "5") : List.of();
+            case 3 -> {
+                if (!args[0].equalsIgnoreCase("cctv")) yield List.of();
+                if (args[1].equalsIgnoreCase("redact")) {
+                    yield List.of("0", "1", "2", "3", "4", "5");
+                }
+                if (args[1].equalsIgnoreCase("offset")) {
+                    yield CctvManager.PARTS.stream()
+                        .filter(o -> o.startsWith(args[2].toLowerCase())).toList();
+                }
+                if (args[1].equalsIgnoreCase("scale")) {
+                    yield Stream.of("bracket", "head")
+                        .filter(o -> o.startsWith(args[2].toLowerCase())).toList();
+                }
+                yield List.of();
+            }
             default -> List.of();
         };
     }

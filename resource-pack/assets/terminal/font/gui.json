@@ -18,6 +18,15 @@
     },
     {
       "type": "bitmap",
+      "file": "terminal:font/gui_desktop.png",
+      "ascent": 13,
+      "height": 222,
+      "chars": [
+        ""
+      ]
+    },
+    {
+      "type": "bitmap",
       "file": "terminal:font/gui_chest27.png",
       "ascent": 13,
       "height": 166,

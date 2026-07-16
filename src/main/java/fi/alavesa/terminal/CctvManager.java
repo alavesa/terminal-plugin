@@ -19,6 +19,9 @@ import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.persistence.PersistentDataType;
+import org.bukkit.util.Transformation;
+import org.joml.AxisAngle4f;
+import org.joml.Vector3f;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -105,16 +108,75 @@ public final class CctvManager {
             m.getPersistentDataContainer().set(plugin.key("cam_yaw"), PersistentDataType.FLOAT, yaw);
             m.getPersistentDataContainer().set(plugin.key("cam_tilt"), PersistentDataType.FLOAT, eyeTilt);
         });
-        // two parts: the BRACKET stays bolted where it is; the HEAD (and the
-        // eye) are what panning turns
-        spawnPart(anchor, base, ceiling ? "cctv_bracket_ceiling" : "cctv_bracket_wall", false);
-        spawnPart(anchor, ceiling ? base.clone().subtract(0, 0.35, 0) : base, "cctv_head", true);
-        // the eye: past the lens, looking out and tilted down
-        Location eyeAt = base.clone().add(base.getDirection().multiply(0.55))
-            .add(0, ceiling ? 0.15 : 0.5, 0);
-        eyeAt.setYaw(yaw);
-        eyeAt.setPitch(eyeTilt);
-        base.getWorld().spawn(eyeAt, ArmorStand.class, eye -> {
+        // the parts (bracket + head ItemDisplays, eye ArmorStand) all hang
+        // off the anchor at computed base positions; per-camera offsets in the
+        // anchor PDC nudge each one - respawnParts re-reads them live
+        Camera camera = new Camera(anchor, name, 0, false);
+        spawnParts(camera, base, ceiling);
+        base.getWorld().playSound(base, Sound.BLOCK_IRON_TRAPDOOR_CLOSE, 0.6f, 1.7f);
+        player.sendMessage(Component.text("Camera " + name + " mounted (facing "
+            + facing.getOppositeFace().name().toLowerCase() + "). /terminal cctv redact <0-5> to classify it.",
+            NamedTextColor.AQUA));
+        return true;
+    }
+
+    /** The three part names editable via /terminal cctv offset & scale. */
+    public static final List<String> PARTS = List.of("bracket", "head", "eye");
+
+    /** Where each part sits before its offset is applied - derived from the
+     *  anchor's stored base yaw/tilt so respawnParts matches place() exactly. */
+    private Location basePosition(Marker anchor, String part) {
+        var pdc = anchor.getPersistentDataContainer();
+        Location base = anchor.getLocation().clone();
+        float yaw = pdc.getOrDefault(plugin.key("cam_yaw"), PersistentDataType.FLOAT, base.getYaw());
+        float tilt = pdc.getOrDefault(plugin.key("cam_tilt"), PersistentDataType.FLOAT, DOWN_TILT);
+        boolean ceiling = tilt > 30f; // ceiling rigs are stored with the steeper tilt
+        base.setYaw(yaw);
+        base.setPitch(0);
+        return switch (part) {
+            case "head" -> ceiling ? base.clone().subtract(0, 0.35, 0) : base;
+            case "eye" -> {
+                Location eyeAt = base.clone().add(base.getDirection().multiply(0.55))
+                    .add(0, ceiling ? 0.15 : 0.5, 0);
+                eyeAt.setYaw(yaw);
+                eyeAt.setPitch(tilt);
+                yield eyeAt;
+            }
+            default -> base; // bracket
+        };
+    }
+
+    /** Reads "x,y,z" from the anchor PDC (off_<part>), 0,0,0 if unset. */
+    private Vector3f offsetOf(Marker anchor, String part) {
+        String raw = anchor.getPersistentDataContainer()
+            .get(plugin.key("off_" + part), PersistentDataType.STRING);
+        if (raw == null) return new Vector3f();
+        String[] p = raw.split(",");
+        try {
+            return new Vector3f(Float.parseFloat(p[0]), Float.parseFloat(p[1]), Float.parseFloat(p[2]));
+        } catch (NumberFormatException | ArrayIndexOutOfBoundsException e) {
+            return new Vector3f();
+        }
+    }
+
+    private float scaleOf(Marker anchor, String part) {
+        return anchor.getPersistentDataContainer()
+            .getOrDefault(plugin.key("scale_" + part), PersistentDataType.FLOAT, 1f);
+    }
+
+    /** Spawns bracket + head ItemDisplays and the eye ArmorStand at their base
+     *  positions plus stored offsets. Used by place() and respawnParts(). */
+    private void spawnParts(Camera camera, Location base, boolean ceiling) {
+        Marker anchor = camera.anchor();
+        Vector3f ob = offsetOf(anchor, "bracket"), oh = offsetOf(anchor, "head"), oe = offsetOf(anchor, "eye");
+        Location bracketAt = base.clone().add(ob.x, ob.y, ob.z);
+        Location headBase = ceiling ? base.clone().subtract(0, 0.35, 0) : base.clone();
+        Location headAt = headBase.add(oh.x, oh.y, oh.z);
+        spawnDisplay(anchor, bracketAt, ceiling ? "cctv_bracket_ceiling" : "cctv_bracket_wall",
+            false, scaleOf(anchor, "bracket"));
+        spawnDisplay(anchor, headAt, "cctv_head", true, scaleOf(anchor, "head"));
+        Location eyeAt = basePosition(anchor, "eye").add(oe.x, oe.y, oe.z);
+        eyeAt.getWorld().spawn(eyeAt, ArmorStand.class, eye -> {
             eye.setPersistent(true);
             eye.setInvisible(true);
             eye.setMarker(true);
@@ -124,14 +186,9 @@ public final class CctvManager {
             eye.addScoreboardTag(TAG_EYE);
             link(eye, anchor);
         });
-        base.getWorld().playSound(base, Sound.BLOCK_IRON_TRAPDOOR_CLOSE, 0.6f, 1.7f);
-        player.sendMessage(Component.text("Camera " + name + " mounted (facing "
-            + facing.getOppositeFace().name().toLowerCase() + "). /terminal cctv redact <0-5> to classify it.",
-            NamedTextColor.AQUA));
-        return true;
     }
 
-    private void spawnPart(Marker anchor, Location at, String model, boolean head) {
+    private void spawnDisplay(Marker anchor, Location at, String model, boolean head, float scale) {
         at.getWorld().spawn(at, ItemDisplay.class, d -> {
             d.setPersistent(true);
             d.setBrightness(new Display.Brightness(15, 15)); // the REC light never sleeps
@@ -140,10 +197,56 @@ public final class CctvManager {
             meta.setItemModel(new NamespacedKey("terminal", model));
             item.setItemMeta(meta);
             d.setItemStack(item);
+            if (scale != 1f) {
+                d.setTransformation(new Transformation(new Vector3f(), new AxisAngle4f(),
+                    new Vector3f(scale, scale, scale), new AxisAngle4f()));
+            }
             d.addScoreboardTag(TAG_PART);
             if (head) d.addScoreboardTag(TAG_HEAD);
             link(d, anchor);
         });
+    }
+
+    /** Re-reads the stored offsets/scales and re-spawns the bracket, head and
+     *  eye at base+offset, so an /terminal cctv offset edit takes effect live
+     *  without re-placing the whole camera. Panning resumes from panTick. */
+    public void respawnParts(Camera camera) {
+        Marker anchor = camera.anchor();
+        String id = anchor.getUniqueId().toString();
+        // clear the old parts (everything linked to this anchor but the anchor)
+        for (Entity part : anchor.getLocation().getNearbyEntities(3, 3, 3)) {
+            if (part.equals(anchor)) continue;
+            if (id.equals(part.getPersistentDataContainer()
+                    .get(plugin.key("anchor"), PersistentDataType.STRING))) {
+                part.remove();
+            }
+        }
+        var pdc = anchor.getPersistentDataContainer();
+        float tilt = pdc.getOrDefault(plugin.key("cam_tilt"), PersistentDataType.FLOAT, DOWN_TILT);
+        boolean ceiling = tilt > 30f;
+        Location base = basePosition(anchor, "bracket");
+        spawnParts(camera, base, ceiling);
+    }
+
+    /** Nudges one part's offset by (dx,dy,dz), persists it in the anchor PDC,
+     *  and respawns the parts so the edit is visible immediately. */
+    public void nudgeOffset(Camera camera, String part, float dx, float dy, float dz) {
+        Vector3f cur = offsetOf(camera.anchor(), part);
+        cur.add(dx, dy, dz);
+        camera.anchor().getPersistentDataContainer().set(plugin.key("off_" + part),
+            PersistentDataType.STRING, cur.x + "," + cur.y + "," + cur.z);
+        respawnParts(camera);
+    }
+
+    public Vector3f offset(Camera camera, String part) {
+        return offsetOf(camera.anchor(), part);
+    }
+
+    /** Sets a bracket/head display scale factor, persisted and applied live. */
+    public void setScale(Camera camera, String part, float factor) {
+        camera.anchor().getPersistentDataContainer().set(plugin.key("scale_" + part),
+            PersistentDataType.FLOAT, Math.max(0.05f, Math.min(8f, factor)));
+        respawnParts(camera);
     }
 
     private void link(Entity part, Marker anchor) {

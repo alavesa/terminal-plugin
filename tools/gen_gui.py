@@ -94,6 +94,16 @@ c.grid(7, 139, 9, 3)
 c.grid(7, 197, 9, 1)
 c.png(os.path.join(tex, "gui_chest54.png"))
 
+# 6-row desktop (post-login): 176x222 - same panel, a DESKTOP header so the
+# post-login screen reads distinctly from the raw entry database
+c = Canvas(176, 222)
+c.frame("SCIPNET DESKTOP")
+c.grid(7, 17, 9, 6)
+c.fill(3, 136, 170, 1, DIVIDER)
+c.grid(7, 139, 9, 3)
+c.grid(7, 197, 9, 1)
+c.png(os.path.join(tex, "gui_desktop.png"))
+
 # 3-row chest (login): 176x166
 c = Canvas(176, 166)
 c.frame("SCIPNET LOGIN")
@@ -121,6 +131,8 @@ font = {
         {"type": "space", "advances": {"": -8, "": -60}},
         {"type": "bitmap", "file": "terminal:font/gui_chest54.png",
          "ascent": 13, "height": 222, "chars": [""]},
+        {"type": "bitmap", "file": "terminal:font/gui_desktop.png",
+         "ascent": 13, "height": 222, "chars": [""]},
         {"type": "bitmap", "file": "terminal:font/gui_chest27.png",
          "ascent": 13, "height": 166, "chars": [""]},
         {"type": "bitmap", "file": "terminal:font/gui_anvil.png",

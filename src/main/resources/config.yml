@@ -3,3 +3,12 @@
 cctv-sounds:
   connect: minecraft:block.note_block.hat
   ambient: minecraft:block.beacon.ambient
+
+# Post-login desktop app layout (slots 0-53 in the 6-row desktop GUI). Anyone
+# can rearrange the icons by shift-clicking an app to pick it up and clicking
+# a slot to drop it - the new slot is saved here and shared server-wide.
+desktop-apps:
+  cctv:
+    slot: 0
+  records:
+    slot: 9

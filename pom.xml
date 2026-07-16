@@ -6,7 +6,7 @@
 
   <groupId>fi.alavesa</groupId>
   <artifactId>terminal-plugin</artifactId>
-  <version>0.7.5</version>
+  <version>0.8.0</version>
   <packaging>jar</packaging>
 
   <name>Terminal</name>

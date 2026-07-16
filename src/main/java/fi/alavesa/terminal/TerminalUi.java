@@ -70,6 +70,7 @@ public final class TerminalUi implements Listener {
     private static final String GLYPH_CHEST54 = "";
     private static final String GLYPH_CHEST27 = "";
     private static final String GLYPH_ANVIL = "";
+    private static final String GLYPH_DESKTOP = "";
 
     private static Component overlay(String glyph) {
         return Component.text(glyph)
@@ -189,8 +190,10 @@ public final class TerminalUi implements Listener {
         Screen screen = new Screen("login", 0);
         Inventory inv = Bukkit.createInventory(screen, 27, overlay(GLYPH_CHEST27));
         screen.inventory = inv;
-        inv.setItem(11, named(Material.PLAYER_HEAD, Component.text(player.getName(), NamedTextColor.WHITE),
-            List.of(line("Identity confirmed.", NamedTextColor.GRAY))));
+        // pre-login: a generic terminal/credentials icon - the player's OWN
+        // head only appears once they've logged into the desktop (feature 2)
+        inv.setItem(11, named(Material.OBSERVER, Component.text("SCiPNET Terminal", NamedTextColor.WHITE),
+            List.of(line("Awaiting authentication.", NamedTextColor.GRAY))));
         inv.setItem(13, named(Material.LIME_CONCRETE,
             Component.text("LOG IN", NamedTextColor.GREEN).decoration(TextDecoration.BOLD, true),
             List.of(line("Access the entry database.", NamedTextColor.GRAY))));
@@ -201,6 +204,92 @@ public final class TerminalUi implements Listener {
         inv.setItem(15, named(Material.PAPER, Component.text("Credentials", NamedTextColor.AQUA), lore));
         player.openInventory(inv);
         player.playSound(player.getLocation(), Sound.BLOCK_NOTE_BLOCK_BIT, 0.7f, 1.2f);
+    }
+
+    // ------------------------------------------------------------ the desktop
+
+    /** The two SCiPNET desktop apps: their PDC id, custom item_model, base
+     *  item and default slot. The live slot is read from / written to config
+     *  (desktop-apps.<id>.slot) so a rearrange by anyone sticks server-wide. */
+    private enum App {
+        CCTV("cctv", "app_cctv", "CCTV Feeds", "Live camera grid.", 0),
+        RECORDS("records", "app_records", "Records", "The entry database.", 9);
+        final String id, model, title, blurb;
+        final int defaultSlot;
+        App(String id, String model, String title, String blurb, int defaultSlot) {
+            this.id = id; this.model = model; this.title = title;
+            this.blurb = blurb; this.defaultSlot = defaultSlot;
+        }
+    }
+
+    private int appSlot(App app) {
+        int slot = plugin.getConfig().getInt("desktop-apps." + app.id + ".slot", app.defaultSlot);
+        return (slot < 0 || slot >= 54) ? app.defaultSlot : slot;
+    }
+
+    private void setAppSlot(App app, int slot) {
+        plugin.getConfig().set("desktop-apps." + app.id + ".slot", slot);
+        plugin.saveConfig();
+    }
+
+    /** Builds one app icon: a custom-textured tile (item_model dispatched on
+     *  PAPER) tagged with the app id so clicks can resolve it. In "picked up"
+     *  move mode the tile is highlighted. */
+    private ItemStack appIcon(App app, boolean picked) {
+        List<Component> lore = new ArrayList<>();
+        lore.add(line(app.blurb, NamedTextColor.GRAY));
+        lore.add(line(picked ? "Click a slot to move it here." : "Double-click to open.",
+            picked ? NamedTextColor.YELLOW : NamedTextColor.DARK_GRAY));
+        lore.add(line("Shift-click: " + (picked ? "cancel move" : "pick up to move"),
+            NamedTextColor.DARK_GRAY));
+        ItemStack icon = named(Material.PAPER,
+            Component.text(app.title, picked ? NamedTextColor.YELLOW : NamedTextColor.AQUA), lore);
+        ItemMeta meta = icon.getItemMeta();
+        meta.setItemModel(new org.bukkit.NamespacedKey("terminal", app.model));
+        meta.getPersistentDataContainer().set(plugin.key("app"), PersistentDataType.STRING, app.id);
+        icon.setItemMeta(meta);
+        return icon;
+    }
+
+    /** Who is currently moving which app (shift-click pick-up), per player. */
+    private final Map<UUID, String> moving = new HashMap<>();
+
+    /**
+     * The post-login DESKTOP: a computer desktop with the two app tiles
+     * (CCTV Feeds, Records) and the player's OWN head as the account
+     * indicator. Apps open on double-click; shift-click picks one up to move
+     * it, and the next slot click drops it there (layout saved server-wide).
+     */
+    public void openDesktop(Player player) {
+        Screen screen = new Screen("desktop", 0);
+        Inventory inv = Bukkit.createInventory(screen, 54, overlay(GLYPH_DESKTOP));
+        screen.inventory = inv;
+        String held = moving.get(player.getUniqueId());
+        for (App app : App.values()) {
+            inv.setItem(appSlot(app), appIcon(app, app.id.equals(held)));
+        }
+        // the account indicator: the player's real skin head, only here AFTER login
+        ItemStack head = new ItemStack(Material.PLAYER_HEAD);
+        org.bukkit.inventory.meta.SkullMeta skull =
+            (org.bukkit.inventory.meta.SkullMeta) head.getItemMeta();
+        skull.setOwningPlayer(player);
+        skull.itemName(Component.text(player.getName(), NamedTextColor.WHITE)
+            .decoration(TextDecoration.ITALIC, false));
+        List<Component> hlore = new ArrayList<>();
+        hlore.add(Component.text("Rank: ", NamedTextColor.GRAY).decoration(TextDecoration.ITALIC, false)
+            .append(rank(player)));
+        hlore.add(line("Clearance: Level " + clearance(player), NamedTextColor.WHITE));
+        hlore.add(line("Signed in.", NamedTextColor.DARK_GRAY));
+        skull.lore(hlore);
+        head.setItemMeta(skull);
+        inv.setItem(8, head); // top-right of the desktop
+        player.openInventory(inv);
+        player.playSound(player.getLocation(), Sound.BLOCK_NOTE_BLOCK_BIT, 0.6f, 1.5f);
+    }
+
+    private App appAt(int slot) {
+        for (App app : App.values()) if (appSlot(app) == slot) return app;
+        return null;
     }
 
     public void openList(Player player, int page) {
@@ -325,7 +414,53 @@ public final class TerminalUi implements Listener {
 
         switch (screen.view) {
             case "login" -> {
-                if (slot == 13) openList(player, 0);
+                if (slot == 13) openDesktop(player); // to the desktop, not straight to the list
+            }
+            case "desktop" -> {
+                String held = moving.get(player.getUniqueId());
+                if (held != null) {
+                    // in MOVE mode: this click relocates the picked-up app here
+                    // (dropping it onto another app just swaps their slots)
+                    App picked = null;
+                    for (App a : App.values()) if (a.id.equals(held)) picked = a;
+                    if (picked != null) {
+                        App occupant = appAt(slot);
+                        if (occupant != null && occupant != picked) {
+                            setAppSlot(occupant, appSlot(picked)); // swap
+                        }
+                        setAppSlot(picked, slot);
+                        Msg.actionbar(player, line(picked.title + " moved.", NamedTextColor.GRAY));
+                    }
+                    moving.remove(player.getUniqueId());
+                    openDesktop(player);
+                    return;
+                }
+                App app = appAt(slot);
+                if (app == null) return;
+                if (event.isShiftClick()) {
+                    // pick the app up: the next slot click drops it there
+                    moving.put(player.getUniqueId(), app.id);
+                    Msg.actionbar(player, line("Moving " + app.title
+                        + " - click a slot to place it.", NamedTextColor.GRAY));
+                    openDesktop(player);
+                    return;
+                }
+                if (event.getClick() == org.bukkit.event.inventory.ClickType.DOUBLE_CLICK) {
+                    if (app == App.CCTV) {
+                        if (!player.hasPermission("terminal.cctv")) {
+                            Msg.actionbar(player, line("No clearance for the camera grid.",
+                                NamedTextColor.RED));
+                            return;
+                        }
+                        cctvViewer.openGrid(player);
+                    } else {
+                        openList(player, 0);
+                    }
+                    return;
+                }
+                // a single click just "selects" the app (feedback, no open)
+                Msg.actionbar(player, line(app.title + " - double-click to open.",
+                    NamedTextColor.DARK_GRAY));
             }
             case "list" -> {
                 if (slot == 45) { openList(player, screen.page - 1); return; }
@@ -620,6 +755,7 @@ public final class TerminalUi implements Listener {
         endSession(event.getPlayer());
         drafts.remove(event.getPlayer().getUniqueId());
         prompts.remove(event.getPlayer().getUniqueId());
+        moving.remove(event.getPlayer().getUniqueId());
     }
 
     // ------------------------------------- physical drafts (vanilla book GUI)
