@@ -315,9 +315,14 @@ public final class CctvViewer implements Listener {
             if (!handle.equals(entry.getValue().npc())) continue;
             Player owner = plugin.getServer().getPlayer(entry.getKey());
             if (owner == null) return;
-            double dmg = 1.0;
-            var attr = attacker.getAttribute(org.bukkit.attribute.Attribute.ATTACK_DAMAGE);
-            if (attr != null) dmg = Math.max(1.0, attr.getValue());
+            // A gun in hand deals its configured bullet damage, not the ~1 bare-hand
+            // melee value (which is why shots on a double only took a heart). Fall back
+            // to the melee attribute for actual melee weapons.
+            double dmg = gunDamage(attacker.getInventory().getItemInMainHand());
+            if (dmg <= 0) {
+                var attr = attacker.getAttribute(org.bukkit.attribute.Attribute.ATTACK_DAMAGE);
+                dmg = attr != null ? Math.max(1.0, attr.getValue()) : 1.0;
+            }
             Entity body = plugin.getServer().getEntity(entry.getValue().body());
             Location at = body != null ? body.getLocation() : owner.getLocation();
             if (owner.getHealth() - dmg <= 0.5) {
@@ -328,6 +333,24 @@ public final class CctvViewer implements Listener {
             }
             return;
         }
+    }
+
+    private static java.lang.reflect.Method GUN_DAMAGE;
+    private static boolean gunLookupTried;
+
+    /** The Guns plugin's configured damage for this item, or -1 (bound by reflection
+     *  so Guns stays a soft, name-only dependency). */
+    private static double gunDamage(ItemStack item) {
+        if (!gunLookupTried) {
+            gunLookupTried = true;
+            try {
+                GUN_DAMAGE = Class.forName("fi.alavesa.guns.GunsPlugin")
+                    .getMethod("gunDamageOf", ItemStack.class);
+            } catch (ReflectiveOperationException ignored) { GUN_DAMAGE = null; }
+        }
+        if (GUN_DAMAGE == null || item == null) return -1;
+        try { return (double) GUN_DAMAGE.invoke(null, item); }
+        catch (ReflectiveOperationException e) { return -1; }
     }
 
     /** Sneak = unplug. */
