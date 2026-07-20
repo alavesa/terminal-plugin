@@ -154,7 +154,7 @@ final class NpcBridge {
                 } else {
                     fnSetSkin.invoke(data, source.getName()); // no textures - by name
                 }
-                fnSetName.invoke(data, source.getName());  // their name floats above it
+                fnSetName.invoke(data, "<empty>");  // FancyNpcs marker: no floating nametag on the body
                 fnSetTab.invoke(data, false);
                 fnSetTurn.invoke(data, false);
                 if (gear != null && !gear.isEmpty()) {
