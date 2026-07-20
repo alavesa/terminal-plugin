@@ -52,5 +52,5 @@ Rebuild and publish the combined pack (prints the new sha1 for
 server.properties):
 
 ```
-/Users/piia/Lab/tools/build-pack.sh
+~/Lab/tools/build-pack.sh
 ```
