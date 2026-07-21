@@ -232,13 +232,16 @@ public final class TerminalUi implements Listener {
      *  item and default slot. The live slot is read from / written to config
      *  (desktop-apps.<id>.slot) so a rearrange by anyone sticks server-wide. */
     private enum App {
-        CCTV("cctv", "app_cctv", "CCTV Feeds", "Live camera grid.", 0),
-        RECORDS("records", "app_records", "Records", "The entry database.", 9),
-        MYFILES("myfiles", "app_myfiles", "My Files", "Your personal folder.", 18);
+        CCTV("cctv", "app_cctv", Material.PAPER, "CCTV Feeds", "Live camera grid.", 0),
+        RECORDS("records", "app_records", Material.PAPER, "Records", "The entry database.", 9),
+        MYFILES("myfiles", "app_myfiles", Material.PAPER, "My Files", "Your personal folder.", 18),
+        // model == null: renders as its vanilla material (no custom pack icon needed)
+        STATS("stats", null, Material.KNOWLEDGE_BOOK, "Stats", "Your combat record.", 27);
         final String id, model, title, blurb;
+        final Material material;
         final int defaultSlot;
-        App(String id, String model, String title, String blurb, int defaultSlot) {
-            this.id = id; this.model = model; this.title = title;
+        App(String id, String model, Material material, String title, String blurb, int defaultSlot) {
+            this.id = id; this.model = model; this.material = material; this.title = title;
             this.blurb = blurb; this.defaultSlot = defaultSlot;
         }
     }
@@ -263,10 +266,10 @@ public final class TerminalUi implements Listener {
             picked ? NamedTextColor.YELLOW : NamedTextColor.DARK_GRAY));
         lore.add(line("Shift-click: " + (picked ? "cancel move" : "pick up to move"),
             NamedTextColor.DARK_GRAY));
-        ItemStack icon = named(Material.PAPER,
+        ItemStack icon = named(app.material,
             Component.text(app.title, picked ? NamedTextColor.YELLOW : NamedTextColor.AQUA), lore);
         ItemMeta meta = icon.getItemMeta();
-        meta.setItemModel(new org.bukkit.NamespacedKey("terminal", app.model));
+        if (app.model != null) meta.setItemModel(new org.bukkit.NamespacedKey("terminal", app.model));
         meta.getPersistentDataContainer().set(plugin.key("app"), PersistentDataType.STRING, app.id);
         icon.setItemMeta(meta);
         return icon;
@@ -397,6 +400,60 @@ public final class TerminalUi implements Listener {
         player.openInventory(inv);
     }
 
+    /** The STATS app: the player's combat record - the same numbers the Facility
+     *  main menu shows, read straight from Facility's per-player data file so no
+     *  compile dependency is needed. Read-only; one button back to the desktop. */
+    public void openStats(Player player) {
+        org.bukkit.configuration.file.YamlConfiguration cfg = facilityStats(player.getUniqueId());
+        int kills = cfg.getInt("stats.kills", 0);
+        int deaths = cfg.getInt("stats.deaths", 0);
+        double kd = deaths == 0 ? kills : Math.round(kills / (double) deaths * 100.0) / 100.0;
+        String area = cfg.getString("last-area", null);
+        Component team = teamDisplay(cfg.getString("team", null));
+
+        Screen screen = new Screen("stats", 0);
+        Inventory inv = Bukkit.createInventory(screen, 27, overlay(GLYPH_CHEST27));
+        screen.inventory = inv;
+        inv.setItem(10, named(Material.DIAMOND_SWORD,
+            Component.text("Kills: " + kills, NamedTextColor.GREEN),
+            List.of(line("Confirmed kills (guns included).", NamedTextColor.DARK_GRAY))));
+        inv.setItem(11, named(Material.WITHER_SKELETON_SKULL,
+            Component.text("Deaths: " + deaths, NamedTextColor.RED),
+            List.of(line("Times you fell.", NamedTextColor.DARK_GRAY))));
+        inv.setItem(12, named(Material.NETHER_STAR,
+            Component.text("K/D: " + kd, NamedTextColor.AQUA),
+            List.of(line("Kill / death ratio.", NamedTextColor.DARK_GRAY))));
+        inv.setItem(14, named(Material.LEATHER_CHESTPLATE,
+            Component.text("Last played as: ", NamedTextColor.GRAY).append(team),
+            List.of(line("The team you were on last.", NamedTextColor.DARK_GRAY))));
+        inv.setItem(15, named(Material.FILLED_MAP,
+            Component.text("Last area: " + (area == null ? "-" : area), NamedTextColor.AQUA),
+            List.of(line("Where you last stood.", NamedTextColor.DARK_GRAY))));
+        inv.setItem(22, button(Material.BARRIER, "btn_back",
+            Component.text("< DESKTOP", NamedTextColor.AQUA),
+            List.of(line("Back to the desktop.", NamedTextColor.GRAY))));
+        player.openInventory(inv);
+    }
+
+    /** Facility's per-player stats file (plugins/Facility/players/&lt;uuid&gt;.yml),
+     *  read straight off disk. Empty config if Facility isn't installed / no record. */
+    private org.bukkit.configuration.file.YamlConfiguration facilityStats(java.util.UUID id) {
+        java.io.File f = new java.io.File(plugin.getDataFolder().getParentFile(),
+            "Facility" + java.io.File.separator + "players" + java.io.File.separator + id + ".yml");
+        return org.bukkit.configuration.file.YamlConfiguration.loadConfiguration(f);
+    }
+
+    /** The coloured team display name from Facility's config, or a dash. */
+    private Component teamDisplay(String teamId) {
+        if (teamId == null || teamId.isBlank()) return Component.text("-", NamedTextColor.DARK_GRAY);
+        java.io.File cfgFile = new java.io.File(plugin.getDataFolder().getParentFile(),
+            "Facility" + java.io.File.separator + "config.yml");
+        var fac = org.bukkit.configuration.file.YamlConfiguration.loadConfiguration(cfgFile);
+        String disp = fac.getString("teams." + teamId + ".display", teamId);
+        return net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer.legacyAmpersand()
+            .deserialize(disp).decoration(net.kyori.adventure.text.format.TextDecoration.ITALIC, false);
+    }
+
     public void openAdmin(Player player, int page) {
         List<EntryStore.Entry> entries = store.all();
         int pages = Math.max(1, (entries.size() + PAGE_SIZE - 1) / PAGE_SIZE);
@@ -518,6 +575,7 @@ public final class TerminalUi implements Listener {
                             cctvViewer.openGrid(player);
                         }
                         case MYFILES -> openMyFiles(player, 0);
+                        case STATS -> openStats(player);
                         default -> openList(player, 0);
                     }
                     return;
@@ -570,6 +628,9 @@ public final class TerminalUi implements Listener {
                     return;
                 }
                 openBook(player, doc); // read it, redactions render as usual
+            }
+            case "stats" -> {
+                if (slot == 22) openDesktop(player);   // < DESKTOP
             }
             case "editor" -> {
                 Draft draft = drafts.computeIfAbsent(player.getUniqueId(), k -> new Draft());
