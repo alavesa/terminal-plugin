@@ -45,6 +45,10 @@ public final class TerminalPlugin extends JavaPlugin {
         getServer().getPluginManager().registerEvents(viewer, this);
         getServer().getScheduler().runTaskTimer(this, cctv::panTick, 40L, 4L);
         getServer().getScheduler().runTaskTimer(this, viewer::feedTick, 40L, 15L);
+        // Clear CCTV doubles left behind by a crash/restart, and keep sweeping so a
+        // body whose owner isn't wired in never lingers carrying the monitor.
+        getServer().getScheduler().runTask(this, viewer::sweepOrphanBodies);
+        getServer().getScheduler().runTaskTimer(this, viewer::sweepOrphanBodies, 600L, 600L);
         NpcBridge.init(this);
         getLogger().info("CCTV body doubles: " + (NpcBridge.available()
             ? "real player models (NPC backend bound)" : "armor-stand fallback (no NPC plugin)"));

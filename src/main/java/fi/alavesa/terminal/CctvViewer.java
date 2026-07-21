@@ -526,6 +526,7 @@ public final class CctvViewer implements Listener {
             .get(plugin.key("cctv_back"), PersistentDataType.STRING);
         if (stored == null) return;
         plugin.getServer().getScheduler().runTask(plugin, () -> {
+            sweepOrphanBodies();   // clear any double left behind by a quit mid-feed
             String[] p = stored.split(";");
             World world = p.length == 7 ? Bukkit.getWorld(p[0]) : null;
             if (world != null) {
@@ -541,6 +542,24 @@ public final class CctvViewer implements Listener {
             player.getPersistentDataContainer().remove(plugin.key("cctv_inv"));
             player.getPersistentDataContainer().remove(plugin.key("cctv_back"));
         });
+    }
+
+    /** Remove CCTV bodies whose owner isn't currently wired in. Orphans happen
+     *  when a player quits while their body's chunk is unloaded (onQuit's
+     *  getEntity returns null) or when the server restarts - the session map is
+     *  in-memory, but the body stand is persistent. Runs on join, on enable and
+     *  on a timer so the double carrying the monitor never lingers. */
+    public void sweepOrphanBodies() {
+        for (World w : plugin.getServer().getWorlds()) {
+            for (ArmorStand stand : w.getEntitiesByClass(ArmorStand.class)) {
+                if (!stand.getScoreboardTags().contains(TAG_BODY)) continue;
+                String owner = stand.getPersistentDataContainer()
+                    .get(plugin.key("body_owner"), PersistentDataType.STRING);
+                UUID id = null;
+                if (owner != null) { try { id = UUID.fromString(owner); } catch (IllegalArgumentException ignored) { } }
+                if (id == null || !sessions.containsKey(id)) stand.remove();
+            }
+        }
     }
 
     /** onDisable: nobody stays in the walls. */
